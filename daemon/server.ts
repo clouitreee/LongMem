@@ -9,7 +9,7 @@ import { CompressionWorker } from "./compression-worker.ts";
 import { IdleDetector } from "./idle-detector.ts";
 import { createRoutes, json } from "./routes.ts";
 
-const MEMORY_DIR = join(homedir(), ".claude-memory");
+const MEMORY_DIR = join(homedir(), ".longmem");
 const PID_FILE = join(MEMORY_DIR, "daemon.pid");
 const LOG_DIR = join(MEMORY_DIR, "logs");
 
@@ -95,13 +95,13 @@ const server = Bun.serve({
   },
 });
 
-console.log(`[claude-memory] Daemon started on http://127.0.0.1:${config.daemon.port}`);
-console.log(`[claude-memory] DB: ${config.daemon.dbPath}`);
-console.log(`[claude-memory] Compression: ${config.compression.enabled ? `${config.compression.model}` : "disabled"}`);
+console.log(`[longmem] Daemon started on http://127.0.0.1:${config.daemon.port}`);
+console.log(`[longmem] DB: ${config.daemon.dbPath}`);
+console.log(`[longmem] Compression: ${config.compression.enabled ? `${config.compression.model}` : "disabled"}`);
 
 // Graceful shutdown
 function shutdown(): void {
-  console.log("[claude-memory] Shutting down...");
+  console.log("[longmem] Shutting down...");
   idleDetector.destroy();
   server.stop();
   try { Bun.file(PID_FILE) && require("fs").unlinkSync(PID_FILE); } catch {}

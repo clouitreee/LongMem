@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.claude-memory/
+.longmem/
 *.db
 *.db-shm
 *.db-wal

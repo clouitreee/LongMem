@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Unified installer for claude-memory.
+ * Unified installer for LongMem.
  * Usage:
  *   bun install.ts            # Install for Claude Code CLI (default)
  *   bun install.ts --opencode # Also configure OpenCode
@@ -11,17 +11,17 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
 
-const MEMORY_DIR = join(homedir(), ".claude-memory");
+const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
 const args = process.argv.slice(2);
 const installOpenCode = args.includes("--opencode") || args.includes("--all");
 const installCLI = !args.includes("--opencode-only");
 
 console.log("╔══════════════════════════════════╗");
-console.log("║     claude-memory installer      ║");
+console.log("║       LongMem installer          ║");
 console.log("╚══════════════════════════════════╝\n");
 
-// 1. Create ~/.claude-memory/ with safe permissions
+// 1. Create ~/.longmem/ with safe permissions
 if (!existsSync(MEMORY_DIR)) {
   mkdirSync(MEMORY_DIR, { recursive: true, mode: 0o700 });
   console.log(`✓ Created ${MEMORY_DIR}`);
@@ -117,7 +117,7 @@ if (installCLI) {
 
   // MCP Server
   claudeSettings.mcpServers = claudeSettings.mcpServers || {};
-  claudeSettings.mcpServers["claude-memory"] = {
+  claudeSettings.mcpServers["longmem"] = {
     command: bunPath,
     args: [join(MEMORY_DIR, "mcp.js")],
   };
@@ -167,7 +167,7 @@ if (installOpenCode) {
 
   // MCP
   opencodeConfig.mcp = opencodeConfig.mcp || {};
-  opencodeConfig.mcp["claude-memory"] = {
+  opencodeConfig.mcp["longmem"] = {
     command: bunPath,
     args: [join(MEMORY_DIR, "mcp.js")],
   };
@@ -192,7 +192,7 @@ try {
   const health = await res.json() as any;
   console.log(`✓ Daemon running — port 38741, pending compressions: ${health.pending}`);
 } catch {
-  console.log("  ⚠  Daemon did not respond — check logs at ~/.claude-memory/logs/");
+  console.log("  ⚠  Daemon did not respond — check logs at ~/.longmem/logs/");
 }
 
 console.log("\n══ Installation complete! ═══════════════════════════════════");

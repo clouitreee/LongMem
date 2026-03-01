@@ -83,7 +83,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   const daemonUp = await ensureDaemonRunning();
 
   if (!daemonUp) {
-    return "Memory daemon is not running. Start it with: bun ~/.claude-memory/daemon.js";
+    return "Memory daemon is not running. Start it with: bun ~/.longmem/daemon.js";
   }
 
   switch (name) {
@@ -187,7 +187,7 @@ process.stdin.on("data", async (chunk: string) => {
         respond(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "claude-memory", version: "1.0.0" },
+          serverInfo: { name: "longmem", version: "1.0.0" },
         });
         break;
 

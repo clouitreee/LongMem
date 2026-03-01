@@ -3,7 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { DaemonClient } from "./daemon-client.ts";
 
-const MEMORY_DIR = join(homedir(), ".claude-memory");
+const MEMORY_DIR = join(homedir(), ".longmem");
 const DEFAULT_PORT = 38741;
 
 export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean> {

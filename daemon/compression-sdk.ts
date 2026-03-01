@@ -46,8 +46,8 @@ export class CompressionSDK {
       apiKey: config.apiKey || "no-key",
       baseURL: config.baseURL || "https://openrouter.ai/api/v1",
       defaultHeaders: config.provider === "openrouter" ? {
-        "HTTP-Referer": "https://github.com/claude-memory",
-        "X-Title": "claude-memory",
+        "HTTP-Referer": "https://github.com/clouitreee/LongMem",
+        "X-Title": "longmem",
       } : undefined,
     });
   }

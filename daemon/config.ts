@@ -52,7 +52,7 @@ const DEFAULTS: MemoryConfig = {
   },
   daemon: {
     port: 38741,
-    dbPath: join(homedir(), ".claude-memory", "memory.db"),
+    dbPath: join(homedir(), ".longmem", "memory.db"),
     logLevel: "warn",
   },
   privacy: {
@@ -76,7 +76,7 @@ function deepMerge<T>(defaults: T, overrides: Partial<T>): T {
 }
 
 export function loadConfig(): MemoryConfig {
-  const configPath = join(homedir(), ".claude-memory", "settings.json");
+  const configPath = join(homedir(), ".longmem", "settings.json");
 
   if (!existsSync(configPath)) return DEFAULTS;
 

@@ -1,5 +1,5 @@
 const PRIVATE_REGEX = /<private>[\s\S]*?<\/private>/gi;
-const CONTEXT_REGEX = /<claude-memory-context>[\s\S]*?<\/claude-memory-context>/gi;
+const CONTEXT_REGEX = /<longmem-context>[\s\S]*?<\/longmem-context>/gi;
 
 // ─── Tag stripping ───────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 
-const DATA_DIR = join(homedir(), ".claude-memory");
+const DATA_DIR = join(homedir(), ".longmem");
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
 let db: Database | null = null;
