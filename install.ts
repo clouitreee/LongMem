@@ -10,13 +10,14 @@
  *   bun install.ts --opencode   # Also look for OpenCode
  *   bun install.ts --all        # Same as --opencode
  */
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { detectEnvironment, printDetectionSummary } from "./shared/detect.ts";
 import { runCoupleFlow } from "./shared/couple.ts";
 import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
+import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
@@ -281,7 +282,113 @@ if (!flags.dryRun) {
   console.log(`\n${YELLOW}(dry-run complete — no changes were made)${RESET}\n`);
 }
 
-// ─── 7. Final Notes ─────────────────────────────────────────────────────────
+// ─── 7. Ecosystem Scan ──────────────────────────────────────────────────────
+
+if (!flags.dryRun) {
+  const ecoscan = scanEcosystem();
+
+  if (ecoscan.files.length > 0) {
+    printEcosystemSummary(ecoscan);
+
+    let shouldIngest = flags.yes;
+    if (!shouldIngest) {
+      process.stdout.write(`  Index these into LongMem memory? [Y/n]: `);
+      shouldIngest = await new Promise<boolean>((resolve) => {
+        const { createInterface } = require("readline");
+        const rl = createInterface({ input: process.stdin, terminal: false });
+        rl.once("line", (line: string) => {
+          rl.close();
+          const answer = line.trim().toLowerCase();
+          resolve(answer === "" || answer === "y" || answer === "yes");
+        });
+        rl.once("close", () => resolve(true));
+      });
+    }
+
+    if (shouldIngest) {
+      try {
+        const payload = ecoscan.files.map(f => ({
+          path: f.path,
+          content: f.content,
+          hash: f.hash,
+          source: f.source,
+        }));
+
+        const res = await fetch("http://127.0.0.1:38741/ecosystem/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ files: payload }),
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (res.ok) {
+          const result = await res.json() as any;
+          console.log(`  ${GREEN}✓${RESET} Indexed ${result.ingested} file(s) into memory (${result.skipped} unchanged)\n`);
+
+          // Offer cleanup — remove source files now that they're in LongMem
+          const removable = ecoscan.files.filter(f =>
+            f.source === "claude-memory" || f.source === "claude-global"
+          );
+
+          if (removable.length > 0) {
+            console.log("── Cleanup ──────────────────────────────────────────────\n");
+            console.log("  LongMem will manage your memory from now on.\n");
+            console.log("  These files are now indexed and can be removed:");
+            for (const f of removable) {
+              const sizeKB = (f.size / 1024).toFixed(1);
+              console.log(`    ${f.path} (${sizeKB}KB)`);
+            }
+            console.log("");
+
+            // Default NO — destructive action
+            let shouldRemove = false;
+            if (!flags.yes) {
+              process.stdout.write(`  Remove them? [y/N]: `);
+              shouldRemove = await new Promise<boolean>((resolve) => {
+                const { createInterface } = require("readline");
+                const rl = createInterface({ input: process.stdin, terminal: false });
+                rl.once("line", (line: string) => {
+                  rl.close();
+                  const answer = line.trim().toLowerCase();
+                  resolve(answer === "y" || answer === "yes");
+                });
+                rl.once("close", () => resolve(false));
+              });
+            }
+            // --yes does NOT auto-remove. Destructive action requires explicit confirmation.
+
+            if (shouldRemove) {
+              let removed = 0;
+              for (const f of removable) {
+                try {
+                  unlinkSync(f.path);
+                  removed++;
+                } catch {}
+              }
+              console.log(`  ${GREEN}✓${RESET} Removed ${removed} file(s)\n`);
+            } else {
+              console.log("  Kept original files.\n");
+            }
+          }
+        } else {
+          console.log(`  ${YELLOW}⚠${RESET}  Ingest failed (HTTP ${res.status}) — memory will build up naturally\n`);
+        }
+      } catch {
+        console.log(`  ${YELLOW}⚠${RESET}  Could not reach daemon for ingest — memory will build up naturally\n`);
+      }
+    } else {
+      console.log("  Skipped ecosystem indexing.\n");
+    }
+  }
+} else if (flags.dryRun) {
+  const ecoscan = scanEcosystem();
+  if (ecoscan.files.length > 0) {
+    printEcosystemSummary(ecoscan);
+    console.log(`  ${YELLOW}(dry-run)${RESET} Would index ${ecoscan.files.length} file(s) into memory\n`);
+  }
+}
+
+// ─── 8. Final Notes ─────────────────────────────────────────────────────────
 
 if (!flags.dryRun) {
   const settingsPath = join(MEMORY_DIR, "settings.json");

@@ -2,6 +2,7 @@ import {
   createSession, getSessionDbId, markSessionCompleted,
   saveObservation, updateSessionPrompt, queueCompression,
   getFullObservation, getFullObservations, getStats,
+  saveUserObservation, getDB,
 } from "./db.ts";
 import {
   searchObservations, searchSessions, searchUserObservations,
@@ -179,6 +180,67 @@ export function createRoutes(
       const after = Math.min(parseInt(params.get("after") || "3", 10), 10);
 
       return json(getTimeline(id, before, after));
+    },
+
+    async handleEcosystemIngest(body: Record<string, unknown>): Promise<Response> {
+      const files = body.files as Array<{ path: string; content: string; hash: string; source: string }>;
+      if (!Array.isArray(files) || files.length === 0) {
+        return json({ error: "files array required" }, 400);
+      }
+
+      const database = getDB();
+      let ingested = 0;
+      let skipped = 0;
+
+      for (const file of files) {
+        if (!file.path || !file.content) continue;
+
+        // Check if this exact hash is already stored
+        const existing = database.prepare(
+          "SELECT id, metadata FROM user_observations WHERE observation_type = 'ecosystem' AND metadata LIKE ?"
+        ).get(`%"path":"${file.path}"%`) as { id: number; metadata: string } | undefined;
+
+        if (existing) {
+          try {
+            const meta = JSON.parse(existing.metadata || "{}");
+            if (meta.hash === file.hash) {
+              // Same content, just bump access count
+              database.prepare(
+                "UPDATE user_observations SET access_count = access_count + 1, last_accessed = datetime('now') WHERE id = ?"
+              ).run(existing.id);
+              skipped++;
+              continue;
+            }
+            // Content changed — update in place
+            database.prepare(
+              "UPDATE user_observations SET content = ?, metadata = ?, last_accessed = datetime('now') WHERE id = ?"
+            ).run(
+              file.content,
+              JSON.stringify({ path: file.path, hash: file.hash, source: file.source }),
+              existing.id
+            );
+            // Rebuild FTS entry
+            try {
+              database.prepare("DELETE FROM user_observations_fts WHERE id = ?").run(existing.id);
+              database.prepare("INSERT INTO user_observations_fts (id, content) VALUES (?, ?)").run(existing.id, file.content);
+            } catch {}
+            ingested++;
+          } catch {
+            skipped++;
+          }
+          continue;
+        }
+
+        // New file — insert
+        saveUserObservation("ecosystem", file.content, {
+          path: file.path,
+          hash: file.hash,
+          source: file.source,
+        });
+        ingested++;
+      }
+
+      return json({ status: "ok", ingested, skipped, total: files.length });
     },
 
     handleHealth(): Response {

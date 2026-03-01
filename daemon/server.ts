@@ -69,6 +69,11 @@ const server = Bun.serve({
         return routes.handlePrompt(await req.json());
       }
 
+      // Ecosystem ingest
+      if (method === "POST" && path === "/ecosystem/ingest") {
+        return routes.handleEcosystemIngest(await req.json());
+      }
+
       // Search & retrieval
       if (method === "GET" && path === "/search") {
         return routes.handleSearch(url.searchParams);

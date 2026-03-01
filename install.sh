@@ -778,6 +778,181 @@ if [[ "$FLAG_DRY_RUN" == false ]]; then
 
   # Write version file
   echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 8: Ecosystem scan
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  if command -v python3 &>/dev/null; then
+    ECOSYSTEM_FILES=$(python3 - "${HOME}" <<'PYEOF'
+import sys, os, json, hashlib
+
+home = sys.argv[1]
+max_size = 50 * 1024  # 50KB
+results = []
+
+def safe_read(path, source):
+    try:
+        if not os.path.isfile(path):
+            return
+        size = os.path.getsize(path)
+        if size == 0 or size > max_size:
+            return
+        with open(path, 'r') as f:
+            content = f.read()
+        h = hashlib.sha256(content.encode()).hexdigest()[:16]
+        results.append({"path": path, "size": size, "hash": h, "source": source, "content": content})
+    except:
+        pass
+
+# 1. Global CLAUDE.md
+safe_read(os.path.join(home, ".claude", "CLAUDE.md"), "claude-global")
+
+# 2. Project memory files
+projects_dir = os.path.join(home, ".claude", "projects")
+if os.path.isdir(projects_dir):
+    for proj in os.listdir(projects_dir):
+        mem_dir = os.path.join(projects_dir, proj, "memory")
+        if os.path.isdir(mem_dir):
+            for f in os.listdir(mem_dir):
+                if f.endswith(".md"):
+                    safe_read(os.path.join(mem_dir, f), "claude-memory")
+
+# 3. Skills
+skills_dir = os.path.join(home, ".claude", "skills")
+if os.path.isdir(skills_dir):
+    for f in os.listdir(skills_dir):
+        if f.endswith(".md"):
+            safe_read(os.path.join(skills_dir, f), "claude-skill")
+
+# 4. Project CLAUDE.md (depth 3)
+skip = {"node_modules",".git",".cache",".local",".bun",".npm",".longmem",
+        ".nvm",".cargo",".rustup","dist","build",".vscode",".cursor","Library",".Trash"}
+def walk(d, depth):
+    if depth > 3:
+        return
+    try:
+        for entry in os.scandir(d):
+            if entry.name in skip:
+                continue
+            if entry.name.startswith(".") and depth == 0 and entry.name != ".claude":
+                continue
+            if entry.is_file() and entry.name == "CLAUDE.md":
+                safe_read(entry.path, "claude-project")
+            elif entry.is_dir(follow_symlinks=False) and depth < 3:
+                walk(entry.path, depth + 1)
+    except:
+        pass
+walk(home, 0)
+
+# 5. OpenCode instructions
+for cfg_name in ["config.json", "opencode.jsonc"]:
+    cfg_path = os.path.join(home, ".config", "opencode", cfg_name)
+    if os.path.isfile(cfg_path):
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            for instr in cfg.get("instructions", []):
+                if isinstance(instr, str) and instr.endswith(".md"):
+                    safe_read(instr, "opencode-instructions")
+        except:
+            pass
+        break
+
+print(json.dumps(results))
+PYEOF
+)
+
+    FILE_COUNT=$(echo "$ECOSYSTEM_FILES" | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+    if [[ "$FILE_COUNT" -gt 0 ]]; then
+      echo ""
+      echo "── Ecosystem Scan ───────────────────────────────────────"
+      echo ""
+      echo "  Found:"
+
+      echo "$ECOSYSTEM_FILES" | python3 -c "
+import sys, json
+files = json.load(sys.stdin)
+for f in files:
+    size_kb = f['size'] / 1024
+    print(f'    \033[32m✓\033[0m {f[\"path\"]} \033[2m({size_kb:.1f}KB)\033[0m')
+"
+      echo ""
+
+      SHOULD_INGEST=false
+      if ask_yes_no "Index these into LongMem memory?"; then
+        SHOULD_INGEST=true
+      fi
+
+      if [[ "$SHOULD_INGEST" == true ]]; then
+        INGEST_RESULT=$(echo "$ECOSYSTEM_FILES" | python3 -c "
+import sys, json, urllib.request
+files = json.load(sys.stdin)
+payload = json.dumps({'files': files}).encode()
+req = urllib.request.Request(
+    'http://127.0.0.1:38741/ecosystem/ingest',
+    data=payload,
+    headers={'Content-Type': 'application/json'},
+    method='POST'
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        result = json.loads(resp.read())
+        print(f'ingested={result.get(\"ingested\",0)} skipped={result.get(\"skipped\",0)}')
+except Exception as e:
+    print(f'error={e}')
+" 2>/dev/null || echo "error=unknown")
+
+        if [[ "$INGEST_RESULT" == error=* ]]; then
+          warn "Could not reach daemon for ingest — memory will build up naturally"
+        else
+          INGESTED=$(echo "$INGEST_RESULT" | grep -oP 'ingested=\K[0-9]+' || echo "0")
+          SKIPPED_I=$(echo "$INGEST_RESULT" | grep -oP 'skipped=\K[0-9]+' || echo "0")
+          ok "Indexed ${INGESTED} file(s) into memory (${SKIPPED_I} unchanged)"
+
+          # Offer cleanup — remove memory/CLAUDE.md files now in LongMem
+          REMOVABLE=$(echo "$ECOSYSTEM_FILES" | python3 -c "
+import sys, json
+files = json.load(sys.stdin)
+removable = [f['path'] for f in files if f['source'] in ('claude-memory', 'claude-global')]
+for p in removable:
+    print(p)
+" 2>/dev/null || true)
+
+          if [[ -n "$REMOVABLE" ]]; then
+            echo ""
+            echo "── Cleanup ──────────────────────────────────────────────"
+            echo ""
+            echo "  LongMem will manage your memory from now on."
+            echo ""
+            echo "  These files are now indexed and can be removed:"
+            while IFS= read -r rpath; do
+              [[ -n "$rpath" ]] && echo "    ${rpath}"
+            done <<< "$REMOVABLE"
+            echo ""
+
+            # Default NO — destructive, --yes does NOT auto-remove
+            if ask_yes_no "Remove them?" "N"; then
+              REMOVED=0
+              while IFS= read -r rpath; do
+                if [[ -n "$rpath" && -f "$rpath" ]]; then
+                  rm -f "$rpath" && REMOVED=$((REMOVED + 1))
+                fi
+              done <<< "$REMOVABLE"
+              ok "Removed ${REMOVED} file(s)"
+            else
+              echo "  Kept original files."
+            fi
+          fi
+        fi
+      else
+        echo "  Skipped ecosystem indexing."
+      fi
+      echo ""
+    fi
+  fi
+
 else
   echo ""
   echo -e "${YELLOW}(dry-run complete — no changes were made)${RESET}"
