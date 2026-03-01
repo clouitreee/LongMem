@@ -82,7 +82,8 @@ BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
 
 DAEMON_BIN="longmemd-${PLATFORM}"
 MCP_BIN="longmem-mcp-${PLATFORM}"
-[[ "$IS_WINDOWS" == true ]] && DAEMON_BIN="${DAEMON_BIN}.exe" && MCP_BIN="${MCP_BIN}.exe"
+HOOK_BIN="longmem-hook-${PLATFORM}"
+[[ "$IS_WINDOWS" == true ]] && DAEMON_BIN="${DAEMON_BIN}.exe" && MCP_BIN="${MCP_BIN}.exe" && HOOK_BIN="${HOOK_BIN}.exe"
 
 # ─── Create directories ───────────────────────────────────────────────────────
 mkdir -p "$BIN_DIR" "$LOG_DIR"
@@ -117,8 +118,9 @@ download() {
 # ─── Download binaries ────────────────────────────────────────────────────────
 download "${BASE_URL}/${DAEMON_BIN}" "${BIN_DIR}/longmemd"
 download "${BASE_URL}/${MCP_BIN}"    "${BIN_DIR}/longmem-mcp"
-[[ "$IS_WINDOWS" == false ]] && chmod +x "${BIN_DIR}/longmemd" "${BIN_DIR}/longmem-mcp"
-ok "Downloaded daemon and MCP server"
+download "${BASE_URL}/${HOOK_BIN}"   "${BIN_DIR}/longmem-hook"
+[[ "$IS_WINDOWS" == false ]] && chmod +x "${BIN_DIR}/longmemd" "${BIN_DIR}/longmem-mcp" "${BIN_DIR}/longmem-hook"
+ok "Downloaded daemon, MCP server, and hook binary"
 
 # ─── Download OpenCode plugin (JS, runs via bun in OpenCode) ─────────────────
 if [[ "$INSTALL_OPENCODE" == true ]]; then
@@ -195,16 +197,16 @@ if [[ "$INSTALL_CLI" == true ]]; then
   backup_if_exists "$CLAUDE_SETTINGS"
   [[ ! -f "$CLAUDE_SETTINGS" ]] && echo '{}' > "$CLAUDE_SETTINGS"
 
-  DAEMON="${BIN_DIR}/longmemd"
+  HOOK="${BIN_DIR}/longmem-hook"
   MCP="${BIN_DIR}/longmem-mcp"
 
-  # Hooks
+  # Hooks — use the standalone longmem-hook binary
   merge_json "$CLAUDE_SETTINGS" "hooks.PostToolUse" \
-    '[{"matcher":"","hooks":[{"type":"command","command":"'"${DAEMON}"' --hook post-tool"}]}]'
+    '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' post-tool"}]}]'
   merge_json "$CLAUDE_SETTINGS" "hooks.UserPromptSubmit" \
-    '[{"matcher":"","hooks":[{"type":"command","command":"'"${DAEMON}"' --hook prompt"}]}]'
+    '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' prompt"}]}]'
   merge_json "$CLAUDE_SETTINGS" "hooks.Stop" \
-    '[{"matcher":"","hooks":[{"type":"command","command":"'"${DAEMON}"' --hook stop"}]}]'
+    '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' stop"}]}]'
 
   # MCP server
   merge_json "$CLAUDE_SETTINGS" "mcpServers.longmem" \
