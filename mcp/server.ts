@@ -6,8 +6,10 @@
  */
 import { DaemonClient } from "../shared/daemon-client.ts";
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
+import { resolveProject } from "../shared/git-root.ts";
 
 const daemon = new DaemonClient();
+const currentProject = resolveProject(process.cwd());
 
 // ─── MCP Protocol (minimal stdio implementation) ──────────────────────────────
 
@@ -38,12 +40,12 @@ function respondError(id: string | number, code: number, message: string): void 
 const TOOLS = [
   {
     name: "mem_search",
-    description: "Search past coding session memory. Returns a compact index of matching observations. Use this FIRST to find relevant context, then call mem_get for full details on specific items.",
+    description: `Search past coding session memory across ALL projects. Returns a compact index of matching observations. Use this FIRST to find relevant context, then call mem_get for full details on specific items. Current project context: ${currentProject}`,
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "Search query — keywords or natural language" },
-        project: { type: "string", description: "Filter by project name (optional, defaults to current)" },
+        project: { type: "string", description: "Filter by project name (optional — omit to search across all projects)" },
         limit: { type: "number", description: "Max results to return (default: 5, max: 20)" },
       },
       required: ["query"],
@@ -90,13 +92,16 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
     case "mem_search": {
       const { query, project, limit } = args;
       try {
+        // Search globally by default — only filter by project if explicitly requested
         const result = await daemon.search(String(query || ""), project as string | undefined, Number(limit || 5));
+
         if (result.total === 0) return "No matching memories found.";
 
         const lines = result.results.map(r =>
           `[ID:${r.id}] ${r.date} | ${r.tool}${r.files ? ` | ${r.files}` : ""}\n  ${r.summary}`
         );
-        return `Found ${result.total} memories:\n\n${lines.join("\n\n")}`;
+        const projectNote = project ? ` (project: ${project})` : " (all projects)";
+        return `Found ${result.total} memories${projectNote}:\n\n${lines.join("\n\n")}`;
       } catch {
         return "Search failed — daemon may be unavailable.";
       }

@@ -9,6 +9,7 @@
  */
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { DaemonClient } from "../shared/daemon-client.ts";
+import { resolveProject } from "../shared/git-root.ts";
 
 const mode = process.argv[2] as "post-tool" | "prompt" | "stop" | undefined;
 
@@ -19,8 +20,8 @@ const SKIP_TOOLS = new Set([
 
 async function main(): Promise<void> {
   const sessionId = process.env.CLAUDE_SESSION_ID || process.env.SESSION_ID || "cli-default";
-  const project = process.cwd().split("/").pop() || "default";
   const directory = process.cwd();
+  const project = resolveProject(directory);
   const client = new DaemonClient();
 
   switch (mode) {
