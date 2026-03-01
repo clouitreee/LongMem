@@ -1,208 +1,297 @@
 #!/usr/bin/env bun
 /**
- * Unified installer for LongMem.
+ * LongMem — unified installer with auto-detection & permission flow.
+ *
  * Usage:
- *   bun install.ts            # Install for Claude Code CLI (default)
- *   bun install.ts --opencode # Also configure OpenCode
- *   bun install.ts --all      # Both
+ *   bun install.ts              # Detect & configure all found clients
+ *   bun install.ts --yes        # Skip all prompts (answer Y)
+ *   bun install.ts --dry-run    # Preview without modifying anything
+ *   bun install.ts --no-service # Don't install systemd/launchd unit
+ *   bun install.ts --opencode   # Also look for OpenCode
+ *   bun install.ts --all        # Same as --opencode
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 import { homedir } from "os";
+import { detectEnvironment, printDetectionSummary } from "./shared/detect.ts";
+import { runCoupleFlow } from "./shared/couple.ts";
+import { installService } from "./shared/service-unit.ts";
+import { verifyInstallation } from "./shared/verify.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
-const args = process.argv.slice(2);
-const installOpenCode = args.includes("--opencode") || args.includes("--all");
-const installCLI = !args.includes("--opencode-only");
 
-console.log("╔══════════════════════════════════╗");
-console.log("║       LongMem installer          ║");
-console.log("╚══════════════════════════════════╝\n");
+// ─── Parse Args ─────────────────────────────────────────────────────────────
 
-// 1. Create ~/.longmem/ with safe permissions
-if (!existsSync(MEMORY_DIR)) {
-  mkdirSync(MEMORY_DIR, { recursive: true, mode: 0o700 });
-  console.log(`✓ Created ${MEMORY_DIR}`);
-} else {
-  console.log(`✓ ${MEMORY_DIR} exists`);
+interface Flags {
+  yes: boolean;
+  dryRun: boolean;
+  noService: boolean;
+  opencode: boolean;
 }
 
-mkdirSync(join(MEMORY_DIR, "hooks"), { recursive: true });
-mkdirSync(join(MEMORY_DIR, "logs"), { recursive: true });
-
-// 2. Copy compiled files
-const filesToCopy: [string, string][] = [
-  [join(DIST_DIR, "daemon.js"), join(MEMORY_DIR, "daemon.js")],
-  [join(DIST_DIR, "mcp.js"), join(MEMORY_DIR, "mcp.js")],
-  [join(DIST_DIR, "hooks", "post-tool.js"), join(MEMORY_DIR, "hooks", "post-tool.js")],
-  [join(DIST_DIR, "hooks", "prompt.js"), join(MEMORY_DIR, "hooks", "prompt.js")],
-  [join(DIST_DIR, "hooks", "stop.js"), join(MEMORY_DIR, "hooks", "stop.js")],
-];
-
-for (const [src, dst] of filesToCopy) {
-  if (!existsSync(src)) {
-    console.error(`✗ Missing built file: ${src}`);
-    console.error("  Run: bun run build");
-    process.exit(1);
-  }
-  copyFileSync(src, dst);
-}
-console.log("✓ Copied daemon, MCP server, and hooks");
-
-// 3. Create settings.json with defaults (if not exists)
-const settingsPath = join(MEMORY_DIR, "settings.json");
-if (!existsSync(settingsPath)) {
-  const defaultSettings = {
-    compression: {
-      enabled: true,
-      provider: "openrouter",
-      model: "meta-llama/llama-3.1-8b-instruct",
-      apiKey: "",
-      maxConcurrent: 1,
-      idleThresholdSeconds: 5,
-      maxPerMinute: 10,
-    },
-    daemon: { port: 38741 },
-    privacy: { redactSecrets: true },
+function parseArgs(argv: string[]): Flags {
+  return {
+    yes: argv.includes("--yes") || argv.includes("-y"),
+    dryRun: argv.includes("--dry-run"),
+    noService: argv.includes("--no-service"),
+    opencode: argv.includes("--opencode") || argv.includes("--all"),
   };
-  writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
-  chmodSync(settingsPath, 0o600);
-  console.log(`✓ Created ${settingsPath}`);
-  console.log("  ⚠  Set your API key in settings.json to enable compression");
-} else {
-  console.log(`✓ ${settingsPath} already exists`);
 }
 
-// 4. Configure Claude Code CLI
-if (installCLI) {
-  const claudeDir = join(homedir(), ".claude");
-  const claudeSettingsPath = join(claudeDir, "settings.json");
+const flags = parseArgs(process.argv.slice(2));
 
-  if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+const BOLD = "\x1b[1m";
+const RESET = "\x1b[0m";
 
-  let claudeSettings: Record<string, any> = {};
-  if (existsSync(claudeSettingsPath)) {
+// ─── Banner ─────────────────────────────────────────────────────────────────
+
+console.log(`${BOLD}╔══════════════════════════════════╗${RESET}`);
+console.log(`${BOLD}║       LongMem installer          ║${RESET}`);
+console.log(`${BOLD}╚══════════════════════════════════╝${RESET}`);
+console.log("");
+
+if (flags.dryRun) {
+  console.log(`${YELLOW}  (dry-run mode — no files will be modified)${RESET}\n`);
+}
+
+// ─── 1. Detect Environment ──────────────────────────────────────────────────
+
+console.log("Scanning...\n");
+const detection = await detectEnvironment();
+printDetectionSummary(detection);
+
+if (detection.clients.length === 0) {
+  console.log("No supported clients found.");
+  console.log("Install Claude Code CLI or OpenCode first, then re-run this installer.");
+  process.exit(1);
+}
+
+// ─── 2. Handle Update Flow ──────────────────────────────────────────────────
+
+if (detection.existingInstall) {
+  const versionFile = join(MEMORY_DIR, "version");
+  const oldVersion = existsSync(versionFile) ? readFileSync(versionFile, "utf-8").trim() : "unknown";
+  console.log(`  Existing install detected (${oldVersion})`);
+
+  if (detection.daemon.running) {
+    console.log("  Stopping daemon for update...");
     try {
-      claudeSettings = JSON.parse(readFileSync(claudeSettingsPath, "utf-8"));
+      await fetch("http://127.0.0.1:38741/shutdown", {
+        method: "POST",
+        signal: AbortSignal.timeout(2000),
+      });
     } catch {
-      console.warn("  ⚠  Could not parse existing ~/.claude/settings.json — creating backup");
-      copyFileSync(claudeSettingsPath, claudeSettingsPath + ".bak");
+      // Try pkill as fallback
+      try {
+        Bun.spawnSync(["pkill", "-f", "longmemd"]);
+      } catch {}
+    }
+    await Bun.sleep(1000);
+  }
+  console.log("");
+}
+
+// ─── 3. Install Files to ~/.longmem/ ────────────────────────────────────────
+
+if (!flags.dryRun) {
+  // Create dirs
+  mkdirSync(join(MEMORY_DIR, "hooks"), { recursive: true });
+  mkdirSync(join(MEMORY_DIR, "logs"), { recursive: true });
+  mkdirSync(join(MEMORY_DIR, "bin"), { recursive: true });
+  chmodSync(MEMORY_DIR, 0o700);
+
+  // Copy compiled JS files (bun mode)
+  const jsFiles: [string, string][] = [
+    [join(DIST_DIR, "daemon.js"), join(MEMORY_DIR, "daemon.js")],
+    [join(DIST_DIR, "mcp.js"), join(MEMORY_DIR, "mcp.js")],
+    [join(DIST_DIR, "hooks", "post-tool.js"), join(MEMORY_DIR, "hooks", "post-tool.js")],
+    [join(DIST_DIR, "hooks", "prompt.js"), join(MEMORY_DIR, "hooks", "prompt.js")],
+    [join(DIST_DIR, "hooks", "stop.js"), join(MEMORY_DIR, "hooks", "stop.js")],
+  ];
+
+  let jsCount = 0;
+  for (const [src, dst] of jsFiles) {
+    if (existsSync(src)) {
+      copyFileSync(src, dst);
+      jsCount++;
     }
   }
 
-  const bunPath = Bun.which("bun") || `${homedir()}/.bun/bin/bun`;
-
-  // Hooks
-  claudeSettings.hooks = claudeSettings.hooks || {};
-  claudeSettings.hooks.PostToolUse = [
-    {
-      matcher: "",
-      hooks: [{ type: "command", command: `${bunPath} ${join(MEMORY_DIR, "hooks/post-tool.js")}` }],
-    },
-  ];
-  claudeSettings.hooks.UserPromptSubmit = [
-    {
-      matcher: "",
-      hooks: [{ type: "command", command: `${bunPath} ${join(MEMORY_DIR, "hooks/prompt.js")}` }],
-    },
-  ];
-  claudeSettings.hooks.Stop = [
-    {
-      matcher: "",
-      hooks: [{ type: "command", command: `${bunPath} ${join(MEMORY_DIR, "hooks/stop.js")}` }],
-    },
+  // Copy compiled binaries if they exist
+  const binFiles: [string, string][] = [
+    [join(DIST_DIR, "bin", `longmemd-${detection.platform}`), join(MEMORY_DIR, "bin", "longmemd")],
+    [join(DIST_DIR, "bin", `longmem-mcp-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-mcp")],
+    [join(DIST_DIR, "bin", `longmem-hook-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-hook")],
   ];
 
-  // MCP Server
-  claudeSettings.mcpServers = claudeSettings.mcpServers || {};
-  claudeSettings.mcpServers["longmem"] = {
-    command: bunPath,
-    args: [join(MEMORY_DIR, "mcp.js")],
-  };
+  let binCount = 0;
+  for (const [src, dst] of binFiles) {
+    if (existsSync(src)) {
+      copyFileSync(src, dst);
+      chmodSync(dst, 0o755);
+      binCount++;
+    }
+  }
 
-  writeFileSync(claudeSettingsPath, JSON.stringify(claudeSettings, null, 2));
-  console.log(`✓ Updated ~/.claude/settings.json (hooks + MCP server)`);
+  if (binCount > 0) {
+    console.log(`${GREEN}✓${RESET} Copied ${binCount} binaries`);
+  }
+  if (jsCount > 0) {
+    console.log(`${GREEN}✓${RESET} Copied ${jsCount} JS modules`);
+  }
+  if (binCount === 0 && jsCount === 0) {
+    console.error("✗ No built files found. Run: bun run build");
+    process.exit(1);
+  }
+
+  // Create settings.json with defaults (never overwrite existing)
+  const settingsPath = join(MEMORY_DIR, "settings.json");
+  if (!existsSync(settingsPath)) {
+    const defaultSettings = {
+      compression: {
+        enabled: true,
+        provider: "openrouter",
+        model: "meta-llama/llama-3.1-8b-instruct",
+        apiKey: "",
+        maxConcurrent: 1,
+        idleThresholdSeconds: 5,
+        maxPerMinute: 10,
+      },
+      daemon: { port: 38741 },
+      privacy: { redactSecrets: true },
+    };
+    writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
+    chmodSync(settingsPath, 0o600);
+    console.log(`${GREEN}✓${RESET} Created ${settingsPath}`);
+    console.log(`  ${YELLOW}⚠${RESET}  Set your API key in settings.json to enable compression`);
+  } else {
+    console.log(`${GREEN}✓${RESET} ${settingsPath} preserved`);
+  }
+
+  console.log("");
 }
 
-// 5. Configure OpenCode
-if (installOpenCode) {
-  const bunPath = Bun.which("bun") || `${homedir()}/.bun/bin/bun`;
-  const pluginPath = join(DIST_DIR, "plugin.js");
-  const opencodeConfigPath = join(homedir(), ".config", "opencode", "config.json");
-  const opencodeConfigDir = dirname(opencodeConfigPath);
-  const instructionsSrc = join(import.meta.dir, ".opencode", "memory-instructions.md");
-  const instructionsDst = join(process.cwd(), ".opencode", "memory-instructions.md");
+// ─── 4. Interactive Permission Flow ─────────────────────────────────────────
 
-  // Copy instructions file to project dir if possible, else to home
-  const targetDir = join(homedir(), ".opencode");
-  mkdirSync(targetDir, { recursive: true });
-  const instructionTarget = join(targetDir, "memory-instructions.md");
-  if (existsSync(instructionsSrc)) {
-    copyFileSync(instructionsSrc, instructionTarget);
-    console.log(`✓ Copied memory instructions to ${instructionTarget}`);
-  }
-
-  // Patch OpenCode config
-  if (!existsSync(opencodeConfigDir)) mkdirSync(opencodeConfigDir, { recursive: true });
-  let opencodeConfig: Record<string, any> = {};
-  if (existsSync(opencodeConfigPath)) {
-    try { opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath, "utf-8")); }
-    catch { copyFileSync(opencodeConfigPath, opencodeConfigPath + ".bak"); }
-  }
-
-  // instructions
-  const instrRelPath = instructionTarget;
-  if (!Array.isArray(opencodeConfig.instructions)) opencodeConfig.instructions = [];
-  if (!opencodeConfig.instructions.includes(instrRelPath)) {
-    opencodeConfig.instructions.push(instrRelPath);
-  }
-
-  // plugin
-  if (!Array.isArray(opencodeConfig.plugin)) opencodeConfig.plugin = [];
-  if (!opencodeConfig.plugin.includes(pluginPath)) {
-    opencodeConfig.plugin.push(pluginPath);
-  }
-
-  // MCP
-  opencodeConfig.mcp = opencodeConfig.mcp || {};
-  opencodeConfig.mcp["longmem"] = {
-    command: bunPath,
-    args: [join(MEMORY_DIR, "mcp.js")],
-  };
-
-  writeFileSync(opencodeConfigPath, JSON.stringify(opencodeConfig, null, 2));
-  console.log("✓ Updated ~/.config/opencode/config.json (instructions + plugin + MCP)");
-}
-
-// 6. Start daemon
-console.log("\n── Starting daemon ──────────────────────────────────────");
-const bunPath = Bun.which("bun") || `${homedir()}/.bun/bin/bun`;
-const child = Bun.spawn([bunPath, "run", join(MEMORY_DIR, "daemon.js")], {
-  detached: true,
-  stdio: ["ignore", "ignore", "ignore"],
+const coupleResult = await runCoupleFlow(detection, {
+  yes: flags.yes,
+  dryRun: flags.dryRun,
+  skipDaemon: flags.noService,
 });
-child.unref();
 
-await Bun.sleep(1500);
+// ─── 5. Daemon Service ──────────────────────────────────────────────────────
 
-try {
-  const res = await fetch("http://127.0.0.1:38741/health", { signal: AbortSignal.timeout(2000) });
-  const health = await res.json() as any;
-  console.log(`✓ Daemon running — port 38741, pending compressions: ${health.pending}`);
-} catch {
-  console.log("  ⚠  Daemon did not respond — check logs at ~/.longmem/logs/");
+if (!flags.noService && !flags.dryRun) {
+  // Resolve daemon executable
+  const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+  const scriptDaemon = join(MEMORY_DIR, "daemon.js");
+
+  let daemonExec: string;
+  if (existsSync(binaryDaemon)) {
+    daemonExec = binaryDaemon;
+  } else if (existsSync(scriptDaemon)) {
+    const bunPath = detection.bunPath || "bun";
+    daemonExec = `${bunPath} run ${scriptDaemon}`;
+  } else {
+    console.log(`${YELLOW}⚠${RESET}  No daemon executable found — skipping service install`);
+    daemonExec = "";
+  }
+
+  if (daemonExec) {
+    let shouldInstall = flags.yes;
+    if (!shouldInstall && !detection.daemon.serviceInstalled) {
+      process.stdout.write(`  Install system service for daemon auto-start on login? [Y/n]: `);
+      const reader = Bun.stdin.stream().getReader();
+      const chunk = await reader.read();
+      const answer = new TextDecoder().decode(chunk.value).trim().toLowerCase();
+      reader.releaseLock();
+      shouldInstall = answer === "" || answer === "y" || answer === "yes";
+    } else if (detection.daemon.serviceInstalled) {
+      shouldInstall = true; // Re-install to update paths
+    }
+
+    if (shouldInstall) {
+      const svcResult = await installService(daemonExec, detection.platform);
+      if (svcResult.installed) {
+        console.log(`${GREEN}✓${RESET} Installed ${svcResult.type} service at ${svcResult.path}`);
+      } else {
+        console.log(`${YELLOW}⚠${RESET}  Service install failed: ${svcResult.error}`);
+        console.log("  Daemon will still auto-start via hook fallback.");
+      }
+    }
+  }
+
+  console.log("");
 }
 
-console.log("\n══ Installation complete! ═══════════════════════════════════");
-if (!existsSync(settingsPath) || JSON.parse(readFileSync(settingsPath, "utf-8")).compression?.apiKey === "") {
-  console.log("\nNext step: set your compression API key:");
-  console.log(`  nano ${settingsPath}`);
-  console.log("  (compression works without a key — observations are stored raw)");
+// ─── 6. Start Daemon + Verify ───────────────────────────────────────────────
+
+if (!flags.dryRun) {
+  // Start daemon if not already running
+  try {
+    const healthRes = await fetch("http://127.0.0.1:38741/health", {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (healthRes.ok) {
+      console.log(`${GREEN}✓${RESET} Daemon already running`);
+    }
+  } catch {
+    // Try to start it
+    const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+    const scriptDaemon = join(MEMORY_DIR, "daemon.js");
+
+    let cmd: string[];
+    if (existsSync(binaryDaemon)) {
+      cmd = [binaryDaemon];
+    } else {
+      const bunPath = detection.bunPath || "bun";
+      cmd = [bunPath, "run", scriptDaemon];
+    }
+
+    try {
+      const child = Bun.spawn(cmd, {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      child.unref();
+      await Bun.sleep(1500);
+    } catch {}
+  }
+
+  console.log("");
+  await verifyInstallation();
+
+  // Write version file
+  const versionFile = join(MEMORY_DIR, "version");
+  try {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
+    writeFileSync(versionFile, pkg.version || "1.0.0");
+  } catch {
+    writeFileSync(versionFile, "1.0.0");
+  }
+} else {
+  console.log(`\n${YELLOW}(dry-run complete — no changes were made)${RESET}\n`);
 }
-console.log("\nMCP tools available to the LLM:");
-console.log("  mem_search  — search past sessions");
-console.log("  mem_timeline — chronological context");
-console.log("  mem_get     — full observation details");
-console.log("");
+
+// ─── 7. Final Notes ─────────────────────────────────────────────────────────
+
+if (!flags.dryRun) {
+  const settingsPath = join(MEMORY_DIR, "settings.json");
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    if (!settings.compression?.apiKey) {
+      console.log("Next step: set your compression API key:");
+      console.log(`  nano ${settingsPath}`);
+      console.log("  (compression works without a key — observations are stored raw)\n");
+    }
+  } catch {}
+
+  console.log("MCP tools available to the LLM:");
+  console.log("  mem_search   — search past sessions");
+  console.log("  mem_timeline — chronological context");
+  console.log("  mem_get      — full observation details");
+  console.log("");
+}

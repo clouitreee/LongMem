@@ -1,6 +1,6 @@
 # LongMem
 
-**Persistent memory for [OpenCode](https://opencode.ai) and [Claude Code CLI](https://claude.ai/code) — both, simultaneously, without freezing your model or polluting your chat.**
+**Persistent memory for [Claude Code CLI](https://claude.ai/code) and [OpenCode](https://opencode.ai) — both, simultaneously, without freezing your model or polluting your chat.**
 
 Every tool call, file edit, and prompt is captured and indexed in a local SQLite database. Three MCP tools (`mem_search`, `mem_get`, `mem_timeline`) let the LLM retrieve the past on demand — no auto-injection, no context bloat.
 
@@ -11,22 +11,21 @@ Every tool call, file edit, and prompt is captured and indexed in a local SQLite
 - **Stop repeating yourself.** Architecture decisions, debugging sessions, file locations — searchable across every future session.
 - **No freeze.** Compression runs in a separate local daemon on its own idle timer, completely decoupled from your main model's API slot.
 - **Clean chat.** Memory is retrieved via MCP tools only when the LLM asks for it — never injected automatically into every message.
+- **Safe config.** The installer detects your clients, shows exactly what it will change, asks permission, and merges hooks without overwriting your existing setup.
 
 ---
 
 ## Demo
 
-> GIF coming soon: `mem_search` finding a past debugging session in under 1s.
-
 ```
 You: why was auth broken last week?
 
-LLM calls → mem_search: "auth broken jwt"
-→ [ID:142] 2026-02-28 | Edit | src/auth.ts
+LLM calls -> mem_search: "auth broken jwt"
+-> [ID:142] 2026-02-28 | Edit | src/auth.ts
     Fixed JWT expiry — was comparing seconds vs milliseconds
 
-LLM calls → mem_get: [142]
-→ Full diff, concepts: jwt, expiry, middleware, auth
+LLM calls -> mem_get: [142]
+-> Full diff, concepts: jwt, expiry, middleware, auth
 
 LLM: "Last week you fixed a JWT expiry bug in src/auth.ts — the check
       was comparing seconds against a milliseconds timestamp..."
@@ -38,123 +37,102 @@ LLM: "Last week you fixed a JWT expiry bug in src/auth.ts — the check
 
 ### Option A — One-line install (no Bun required)
 
-Pre-compiled standalone binaries are published with each GitHub Release for macOS (arm64 / x64) and Linux (x64). The installer requires no runtime — just `curl`, `bash`, and `python3` (for JSON patching).
+Pre-compiled standalone binaries for macOS (arm64 / x64) and Linux (x64). Requires `curl`, `bash`, and `python3` (for JSON config patching).
 
 ```bash
-# Claude Code CLI only (default)
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
-
-# Claude Code CLI + OpenCode
-curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --all
-
-# OpenCode only
-curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --opencode-only
 ```
 
-**Verify the daemon is running:**
+The installer will:
+
+1. **Detect** which clients you have installed (Claude Code CLI, OpenCode)
+2. **Show** exactly what config changes it will make
+3. **Ask permission** before modifying any file
+4. **Merge** hooks safely — your existing hooks are never overwritten
+5. **Offer** to install a systemd/launchd service for daemon auto-start
+6. **Verify** everything works (daemon, hooks, MCP, config paths)
+
+```
+╔══════════════════════════════════╗
+║       LongMem installer          ║
+╚══════════════════════════════════╝
+
+Scanning...
+
+  Detected:
+    ✓ Claude Code CLI  v2.1.50    (/home/you/.local/bin/claude)
+    ✗ OpenCode         not found
+
+── Claude Code CLI ──────────────────────────────────────
+
+  Config: ~/.claude/settings.json
+
+  Will add:
+    hooks.PostToolUse      → longmem-hook post-tool
+    hooks.UserPromptSubmit → longmem-hook prompt
+    hooks.Stop             → longmem-hook stop
+    mcpServers.longmem     → longmem-mcp
+
+  Apply changes? [Y/n]: y
+
+  ✓ Updated ~/.claude/settings.json
+
+  Install system service for daemon auto-start on login? [Y/n]: y
+
+  ✓ Installed systemd user service
+
+── Verification ─────────────────────────────────────────
+
+  ✓ Daemon health    port 38741, uptime 2s
+  ✓ Hook binary      exits 0
+  ✓ MCP server       3 tools registered
+  ✓ Config paths     all resolve
+
+══ LongMem is ready! ════════════════════════════════════
+```
+
+#### Installer flags
+
+| Flag | Effect |
+|------|--------|
+| `--yes` / `-y` | Skip all prompts, answer Y to everything |
+| `--dry-run` | Preview what would happen, don't modify anything |
+| `--no-service` | Don't install systemd/launchd unit |
+| `--opencode` | Also configure OpenCode |
+| `--all` | Configure both Claude Code CLI and OpenCode |
+| `--opencode-only` | Configure OpenCode only |
 
 ```bash
-curl -s http://127.0.0.1:38741/health
-# → {"status":"ok","pending":0,"sessions":0}
-```
+# Non-interactive, full install
+curl -fsSL .../install.sh | bash -s -- --all --yes
 
-> Binaries are built by GitHub Actions on each tagged release (`v*`). If no release exists yet, use Option B.
+# Preview mode
+curl -fsSL .../install.sh | bash -s -- --dry-run
+```
 
 ---
 
-### Option B — Dev install (requires [Bun](https://bun.sh) ≥ 1.1)
+### Option B — Dev install (requires [Bun](https://bun.sh) >= 1.1)
 
 ```bash
 git clone https://github.com/clouitreee/LongMem.git
 cd LongMem
 bun install
-bun run build             # compile daemon + MCP + hooks
-bun run install.ts        # configure Claude Code CLI
+bun run build
+bun run install.ts           # interactive install
 # or:
-bun run install.ts --all  # configure Claude Code CLI + OpenCode
+bun run install.ts --dry-run # preview only
+bun run install.ts --all -y  # non-interactive, both clients
 ```
 
-**Verify:**
+---
+
+### Verify
+
 ```bash
 curl -s http://127.0.0.1:38741/health
+# -> {"status":"ok","pending":0,"sessions":0}
 ```
-
----
-
-## Integrations
-
-### A) Claude Code CLI
-
-The installer patches `~/.claude/settings.json`. What gets added:
-
-**Dev install** (`bun run install.ts`):
-```json
-{
-  "hooks": {
-    "PostToolUse":     [{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.bun/bin/bun /home/you/.longmem/hooks/post-tool.js" }] }],
-    "UserPromptSubmit":[{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.bun/bin/bun /home/you/.longmem/hooks/prompt.js" }] }],
-    "Stop":            [{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.bun/bin/bun /home/you/.longmem/hooks/stop.js" }] }]
-  },
-  "mcpServers": {
-    "longmem": {
-      "command": "/home/you/.bun/bin/bun",
-      "args": ["/home/you/.longmem/mcp.js"]
-    }
-  }
-}
-```
-
-**Binary install** (`install.sh`):
-```json
-{
-  "hooks": {
-    "PostToolUse":     [{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.longmem/bin/longmem-hook post-tool" }] }],
-    "UserPromptSubmit":[{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.longmem/bin/longmem-hook prompt" }] }],
-    "Stop":            [{ "matcher": "", "hooks": [{ "type": "command", "command": "/home/you/.longmem/bin/longmem-hook stop" }] }]
-  },
-  "mcpServers": {
-    "longmem": {
-      "command": "/home/you/.longmem/bin/longmem-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-| Hook | What it does |
-|------|-------------|
-| `PostToolUse` | Captures tool name + input + output → sends to daemon (fire-and-forget) |
-| `UserPromptSubmit` | Indexes the user prompt for full-text search |
-| `Stop` | Signals session end so the daemon can finalize compression |
-
-All hooks always exit `0` — they never block or break your Claude Code workflow.
-
----
-
-### B) OpenCode
-
-Install with `--opencode` or `--all`. The installer patches `~/.config/opencode/config.json`:
-
-```json
-{
-  "instructions": ["/home/you/.opencode/memory-instructions.md"],
-  "plugin": ["/home/you/.longmem/plugin.js"],
-  "mcp": {
-    "longmem": {
-      "command": "/home/you/.longmem/bin/longmem-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-- **`instructions`** — tells the model to call `mem_search` before answering. Without this, the LLM may never use memory tools.
-- **`plugin`** — hooks into `tool.execute.after`, `session.created`, `session.deleted`, `chat.message` to capture activity automatically.
-- **`mcp`** — exposes `mem_search`, `mem_get`, `mem_timeline` as native OpenCode tools.
-
-> `experimental.session.compacting` is intentionally **not** used — it injected text directly into the chat, contaminating the conversation. Context is provided via MCP tools only.
-
-> **Security:** The daemon binds exclusively to `127.0.0.1:38741`. No data leaves your machine.
 
 ---
 
@@ -164,7 +142,7 @@ Install with `--opencode` or `--all`. The installer patches `~/.config/opencode/
 flowchart LR
     A["Claude Code hooks\nOpenCode plugin"] -->|"POST /observe"| B["longmemd\n127.0.0.1:38741"]
     B --> C[("SQLite FTS5\n~/.longmem/memory.db")]
-    C -->|"idle → compress\n(optional)"| D["LLM API\noptional"]
+    C -->|"idle -> compress\n(optional)"| D["LLM API\noptional"]
     E["LLM calls mem_search"] -->|"GET /search"| B
     B -->|"compact index"| E
     E -->|"IDs"| F["mem_get / mem_timeline"]
@@ -177,6 +155,80 @@ flowchart LR
 3. `mem_timeline` — shows what happened before/after a specific observation (chronological context).
 
 FTS search works immediately on raw tool output — no compression required. Compressed summaries (from a small model you configure) improve ranking quality when available, but are entirely optional.
+
+---
+
+## Integrations
+
+### Claude Code CLI
+
+The installer patches `~/.claude/settings.json` with hooks and an MCP server:
+
+| Hook | What it does |
+|------|-------------|
+| `PostToolUse` | Captures tool name + input + output, sends to daemon (fire-and-forget) |
+| `UserPromptSubmit` | Indexes the user prompt for full-text search |
+| `Stop` | Signals session end so the daemon can finalize compression |
+
+All hooks always exit `0` — they never block or break your Claude Code workflow.
+
+**Binary install** adds entries like:
+```json
+{
+  "hooks": {
+    "PostToolUse": [{ "matcher": "", "hooks": [{ "type": "command", "command": "~/.longmem/bin/longmem-hook post-tool" }] }]
+  },
+  "mcpServers": {
+    "longmem": { "command": "~/.longmem/bin/longmem-mcp", "args": [] }
+  }
+}
+```
+
+**Dev install** uses `bun ~/.longmem/hooks/post-tool.js` and `bun ~/.longmem/mcp.js` instead.
+
+Existing hooks in your `settings.json` are preserved. The installer only adds/updates LongMem entries — it never overwrites the whole array.
+
+---
+
+### OpenCode
+
+Install with `--opencode` or `--all`. Patches `~/.config/opencode/config.json`:
+
+```json
+{
+  "instructions": ["~/.opencode/memory-instructions.md"],
+  "plugin": ["~/.longmem/plugin.js"],
+  "mcp": {
+    "longmem": { "command": "~/.longmem/bin/longmem-mcp", "args": [] }
+  }
+}
+```
+
+- **`instructions`** — tells the model to call `mem_search` before answering.
+- **`plugin`** — hooks into `tool.execute.after`, `session.created`, `session.deleted`, `chat.message` to capture activity.
+- **`mcp`** — exposes `mem_search`, `mem_get`, `mem_timeline` as native OpenCode tools.
+
+---
+
+## Daemon Service
+
+The installer can register a system service so the daemon starts automatically on login.
+
+**Linux** — systemd user unit at `~/.config/systemd/user/longmem.service`:
+```bash
+systemctl --user status longmem    # check status
+systemctl --user restart longmem   # restart
+journalctl --user -u longmem       # view logs
+```
+
+**macOS** — launchd plist at `~/Library/LaunchAgents/com.longmem.daemon.plist`:
+```bash
+launchctl list | grep longmem      # check status
+launchctl stop com.longmem.daemon  # stop
+launchctl start com.longmem.daemon # start
+```
+
+If the service is not installed, hooks fall back to spawning the daemon on demand (original behavior).
 
 ---
 
@@ -220,17 +272,39 @@ Settings file: **`~/.longmem/settings.json`** (created on first install, `chmod 
 
 ---
 
+## Updates
+
+Re-running the installer detects an existing installation and updates in place:
+
+- Binaries are replaced with the latest version
+- `settings.json` and `memory.db` are never touched
+- Config files are re-validated (shows "already configured" if unchanged)
+- Daemon is restarted automatically
+- A `~/.longmem/version` file tracks the installed release
+
+```bash
+# Update to latest release
+curl -fsSL .../install.sh | bash -s -- --yes
+
+# Or from source
+git pull && bun run build && bun run install.ts --yes
+```
+
+---
+
 ## Security & Privacy
+
+**Local only.** The daemon binds exclusively to `127.0.0.1:38741`. No data leaves your machine unless you configure compression (optional, idle windows only). It never phones home.
 
 **Automatic redaction** (when `privacy.redactSecrets: true`):
 
 | Pattern | Example |
 |---------|---------|
-| OpenRouter keys | `sk-or-v1-…` |
-| Anthropic keys | `sk-ant-…` |
-| OpenAI keys | `sk-…` |
-| GitHub PATs / OAuth | `ghp_…`, `gho_…` |
-| Slack bot tokens | `xoxb-…` |
+| OpenRouter keys | `sk-or-v1-...` |
+| Anthropic keys | `sk-ant-...` |
+| OpenAI keys | `sk-...` |
+| GitHub PATs / OAuth | `ghp_...`, `gho_...` |
+| Slack bot tokens | `xoxb-...` |
 | AWS secrets | 20-char ID + 40-char value |
 | Generic key=value secrets | `password=hunter2`, `api_key="abc"` |
 
@@ -248,22 +322,22 @@ Content inside `<private>` is stripped before writing to the DB. The tag and its
 - Don't rely on it as your only security layer.
 - Treat memory output as potentially sensitive.
 
-**Local only.** The daemon only makes outbound connections to your configured compression API (optional, idle windows only). It never phones home.
-
 ---
 
 ## Troubleshooting
 
 **Daemon not running:**
 ```bash
-# Check health
 curl -s http://127.0.0.1:38741/health
 
-# Start manually — binary install
+# Start manually (binary install)
 ~/.longmem/bin/longmemd &
 
-# Start manually — dev install
+# Start manually (dev install)
 bun run ~/.longmem/daemon.js &
+
+# Via systemd (Linux)
+systemctl --user start longmem
 
 # Check logs
 ls ~/.longmem/logs/
@@ -271,11 +345,7 @@ ls ~/.longmem/logs/
 
 **Port already in use:**
 
-Edit `~/.longmem/settings.json`:
-```json
-"daemon": { "port": 39000 }
-```
-Restart the daemon. The MCP server and hooks read the same config file automatically.
+Edit `~/.longmem/settings.json`, change `"port": 38741` to another value, and restart the daemon.
 
 **`mem_search` returns nothing:**
 
@@ -292,23 +362,29 @@ Compression is optional. Without an `apiKey`, search still works on raw data. If
 
 ## Uninstall
 
-**Binary install:**
 ```bash
 bash ~/.longmem/uninstall.sh
 ```
 
-Stops the daemon, restores `.bak` config backups, and removes `~/.longmem/`.
+The uninstall script:
+1. Stops the daemon
+2. Removes the systemd/launchd service (if installed)
+3. Offers to restore config backups (timestamped `.pre-longmem-*.bak` files)
+4. Removes `~/.longmem/`
 
 **Manual:**
 ```bash
-pkill -f longmemd 2>/dev/null || true
+# Stop everything
+pkill -f longmemd 2>/dev/null
+systemctl --user disable --now longmem 2>/dev/null  # Linux
+launchctl unload ~/Library/LaunchAgents/com.longmem.daemon.plist 2>/dev/null  # macOS
+
+# Remove install
 rm -rf ~/.longmem
 
-# Restore Claude Code config
-cp ~/.claude/settings.json.bak ~/.claude/settings.json
-
-# Restore OpenCode config
-cp ~/.config/opencode/config.json.bak ~/.config/opencode/config.json
+# Restore configs from the latest backup
+cp ~/.claude/settings.json.pre-longmem-*.bak ~/.claude/settings.json
+cp ~/.config/opencode/config.json.pre-longmem-*.bak ~/.config/opencode/config.json
 ```
 
 **Clear memory only** (keep the install):
@@ -316,6 +392,31 @@ cp ~/.config/opencode/config.json.bak ~/.config/opencode/config.json
 rm ~/.longmem/memory.db
 # The daemon recreates it automatically on next start
 ```
+
+---
+
+## Architecture
+
+```
+~/.longmem/
+  bin/
+    longmemd          # daemon binary
+    longmem-mcp       # MCP server binary
+    longmem-hook      # hook binary (post-tool, prompt, stop)
+  daemon.js           # daemon (bun mode, dev install)
+  mcp.js              # MCP server (bun mode, dev install)
+  hooks/
+    post-tool.js      # hook scripts (bun mode, dev install)
+    prompt.js
+    stop.js
+  memory.db           # SQLite FTS5 database
+  settings.json       # user configuration
+  version             # installed release tag
+  logs/
+  uninstall.sh
+```
+
+Binary install uses standalone executables in `bin/`. Dev install uses JS modules that run through Bun. Both work identically.
 
 ---
 
@@ -340,11 +441,10 @@ bun run build    # compile all targets to dist/
 bun run dev      # run daemon in dev mode
 ```
 
-No automated tests yet — contributions welcome.
-
 **Ground rules:**
 - Hooks must always exit `0` — they cannot block the host CLI.
 - Daemon must bind `127.0.0.1` only — never `0.0.0.0`.
+- Config merging must preserve existing user hooks — never overwrite arrays.
 - No secrets in issues, PRs, or log output.
 
 ---
