@@ -1,4 +1,4 @@
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 /**
@@ -18,10 +18,19 @@ export function getGitRoot(startDir: string): string | null {
 
 /**
  * Resolve the project name for a given working directory.
- * Uses the git root basename if available, otherwise falls back to cwd basename.
+ * Priority: package.json "name" at git root → git root basename → cwd basename.
  */
 export function resolveProject(cwd: string): string {
   const gitRoot = getGitRoot(cwd);
-  if (gitRoot) return gitRoot.split("/").pop() || "default";
+  if (gitRoot) {
+    const pkgPath = join(gitRoot, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        if (pkg.name) return pkg.name;
+      } catch {}
+    }
+    return gitRoot.split("/").pop() || "default";
+  }
   return cwd.split("/").pop() || "default";
 }
