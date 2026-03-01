@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            daemon_out: longmemd-linux-x64
+            mcp_out: longmem-mcp-linux-x64
+            hooks_out: longmem-hooks-linux-x64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            daemon_out: longmemd-macos-arm64
+            mcp_out: longmem-mcp-macos-arm64
+            hooks_out: longmem-hooks-macos-arm64
+          - os: macos-13
+            target: bun-darwin-x64
+            daemon_out: longmemd-macos-x64
+            mcp_out: longmem-mcp-macos-x64
+            hooks_out: longmem-hooks-macos-x64
+          - os: windows-latest
+            target: bun-windows-x64
+            daemon_out: longmemd-windows-x64.exe
+            mcp_out: longmem-mcp-windows-x64.exe
+            hooks_out: longmem-hooks-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build daemon binary
+        run: bun build ./daemon/server.ts --compile --outfile dist/bin/${{ matrix.daemon_out }} --target ${{ matrix.target }}
+
+      - name: Build MCP binary
+        run: bun build ./mcp/server.ts --compile --outfile dist/bin/${{ matrix.mcp_out }} --target ${{ matrix.target }}
+
+      - name: Build OpenCode plugin (JS — runs via bun in hooks)
+        if: matrix.target == 'bun-linux-x64'
+        run: bun run build:opencode
+
+      - name: Compute checksums (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist/bin
+          sha256sum ${{ matrix.daemon_out }} > ${{ matrix.daemon_out }}.sha256
+          sha256sum ${{ matrix.mcp_out }} > ${{ matrix.mcp_out }}.sha256
+
+      - name: Compute checksums (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd dist/bin
+          (Get-FileHash ${{ matrix.daemon_out }} -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.daemon_out }}" | Out-File ${{ matrix.daemon_out }}.sha256 -Encoding utf8
+          (Get-FileHash ${{ matrix.mcp_out }} -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.mcp_out }}" | Out-File ${{ matrix.mcp_out }}.sha256 -Encoding utf8
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/bin/${{ matrix.daemon_out }}
+            dist/bin/${{ matrix.daemon_out }}.sha256
+            dist/bin/${{ matrix.mcp_out }}
+            dist/bin/${{ matrix.mcp_out }}.sha256
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build:opencode
+      - name: Upload plugin.js
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/plugin.js
+
+  manifest:
+    needs: [build, plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate manifest.json
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+          cat > manifest.json <<EOF
+          {
+            "version": "${TAG}",
+            "binaries": {
+              "daemon": {
+                "linux-x64":   "${BASE}/longmemd-linux-x64",
+                "macos-arm64": "${BASE}/longmemd-macos-arm64",
+                "macos-x64":   "${BASE}/longmemd-macos-x64",
+                "windows-x64": "${BASE}/longmemd-windows-x64.exe"
+              },
+              "mcp": {
+                "linux-x64":   "${BASE}/longmem-mcp-linux-x64",
+                "macos-arm64": "${BASE}/longmem-mcp-macos-arm64",
+                "macos-x64":   "${BASE}/longmem-mcp-macos-x64",
+                "windows-x64": "${BASE}/longmem-mcp-windows-x64.exe"
+              },
+              "plugin": "${BASE}/plugin.js"
+            }
+          }
+          EOF
+
+      - name: Upload manifest and installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            manifest.json
+            install.sh
