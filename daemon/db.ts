@@ -242,13 +242,18 @@ export function updateObservationSummary(
   `).run(summary, type, filesStr, conceptsStr, obsId);
 
   // Rebuild FTS entry
-  database.prepare("DELETE FROM observations_fts WHERE id = ?").run(obsId);
-  database.prepare("INSERT INTO observations_fts (id, tool_name, compressed_summary, files_referenced) VALUES (?, ?, ?, ?)").run(
-    obsId,
-    database.prepare("SELECT tool_name FROM observations WHERE id = ?").get(obsId) as string ?? "",
-    summary,
-    filesStr
-  );
+  try {
+    database.prepare("DELETE FROM observations_fts WHERE id = ?").run(obsId);
+    const row = database.prepare("SELECT tool_name FROM observations WHERE id = ?").get(obsId) as { tool_name: string } | undefined;
+    database.prepare("INSERT INTO observations_fts (id, tool_name, compressed_summary, files_referenced) VALUES (?, ?, ?, ?)").run(
+      obsId,
+      row?.tool_name ?? "",
+      summary,
+      filesStr
+    );
+  } catch {
+    // FTS update is best-effort — don't fail the main observation update
+  }
 }
 
 export function getObservationById(id: number): {

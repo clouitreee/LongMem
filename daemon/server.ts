@@ -34,6 +34,9 @@ const idleDetector = new IdleDetector(
 );
 const routes = createRoutes(idleDetector, worker, config);
 
+// Process any jobs pending from previous sessions on startup
+setTimeout(() => worker.processQueue(), 5000);
+
 // HTTP Server — listens only on localhost
 const server = Bun.serve({
   hostname: "127.0.0.1",
