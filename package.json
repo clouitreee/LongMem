@@ -1,0 +1,20 @@
+{
+  "name": "claude-memory",
+  "version": "1.0.0",
+  "description": "Persistent memory daemon for OpenCode and Claude Code CLI",
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./daemon/server.ts --outfile dist/daemon.js --target bun && bun build ./mcp/server.ts --outfile dist/mcp.js --target bun && bun build ./hooks/post-tool.ts --outfile dist/hooks/post-tool.js --target bun && bun build ./hooks/prompt.ts --outfile dist/hooks/prompt.js --target bun && bun build ./hooks/stop.ts --outfile dist/hooks/stop.js --target bun && bun build ./install.ts --outfile dist/install.js --target bun",
+    "build:opencode": "bun build ./opencode/plugin.ts --outfile dist/plugin.js --target bun --external @opencode-ai/plugin",
+    "dev": "bun run daemon/server.ts",
+    "install-plugin": "bun run install.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.2.15",
+    "@types/bun": "latest"
+  }
+}
