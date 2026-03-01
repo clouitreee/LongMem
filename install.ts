@@ -204,11 +204,16 @@ if (!flags.noService && !flags.dryRun) {
     let shouldInstall = flags.yes;
     if (!shouldInstall && !detection.daemon.serviceInstalled) {
       process.stdout.write(`  Install system service for daemon auto-start on login? [Y/n]: `);
-      const reader = Bun.stdin.stream().getReader();
-      const chunk = await reader.read();
-      const answer = new TextDecoder().decode(chunk.value).trim().toLowerCase();
-      reader.releaseLock();
-      shouldInstall = answer === "" || answer === "y" || answer === "yes";
+      shouldInstall = await new Promise<boolean>((resolve) => {
+        const { createInterface } = require("readline");
+        const rl = createInterface({ input: process.stdin, terminal: false });
+        rl.once("line", (line: string) => {
+          rl.close();
+          const answer = line.trim().toLowerCase();
+          resolve(answer === "" || answer === "y" || answer === "yes");
+        });
+        rl.once("close", () => resolve(true));
+      });
     } else if (detection.daemon.serviceInstalled) {
       shouldInstall = true; // Re-install to update paths
     }
