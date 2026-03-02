@@ -32,30 +32,38 @@ Paste this in your terminal:
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
 ```
 
-The installer does everything for you:
+A setup wizard walks you through everything — no JSON editing needed:
 
-1. Finds your tools (Claude Code, OpenCode)
-2. Shows what it will change and **asks permission**
-3. Sets up memory capture + search
-4. Verifies everything works
+1. Detects your tools (Claude Code, OpenCode)
+2. Lets you pick privacy mode, auto-context, and compression
+3. Configures hooks and MCP server
+4. Installs the background service
+5. Verifies everything works
 
 ```
-╔══════════════════════════════════╗
-║       LongMem installer          ║
-╚══════════════════════════════════╝
-
-  Detected:
-    ✓ Claude Code CLI  v2.1.50
-    ✓ OpenCode         v1.2.15
-
-  Apply changes? [Y/n]: y
-  ✓ Done
-
-  ✓ Daemon running
-  ✓ Hooks working
-  ✓ Memory search ready
-
-══ LongMem is ready! ════════════════════════════════
+◆  LongMem Setup Wizard
+│
+◇  Detected
+│  Claude Code CLI v2.1.50
+│  Daemon: binary mode, running
+│
+◆  Privacy mode
+│  ● Safe (recommended)
+│  ○ Flexible
+│  ○ None
+│
+◇  Enable auto-context? … Yes
+◇  Apply client configuration? … Yes
+◇  Install system service? … Yes
+◇  Enable compression? … Yes
+│
+◇  All checks passed
+│  ✓ Daemon health
+│  ✓ Hook binary
+│  ✓ MCP server
+│  ✓ Config paths
+│
+└  LongMem is ready! Changes take effect in your next session.
 ```
 
 Start a new session — your assistant now has memory.
@@ -64,9 +72,11 @@ Start a new session — your assistant now has memory.
 
 | Option | What it does |
 |--------|-------------|
-| `--yes` | Accept everything, no prompts |
+| `--yes` | Accept everything, no prompts (headless) |
 | `--dry-run` | See what would happen without changing anything |
 | `--all` | Set up both Claude Code and OpenCode |
+| `--tui` | Re-run the setup wizard anytime |
+| `--no-service` | Don't install systemd/launchd unit |
 
 ### Install from source
 
@@ -169,7 +179,9 @@ The database is recreated automatically next session.
 - **`<private>` tag** — wrap anything sensitive: `<private>my password is xyz</private>` — it won't be saved at all.
 - **Your data, your disk.** Everything is in `~/.longmem/`. Delete it anytime.
 
-### Settings
+---
+
+## Settings
 
 Run the setup wizard anytime to change privacy mode, auto-context, compression, and more:
 
@@ -347,7 +359,7 @@ git clone https://github.com/clouitreee/LongMem.git && cd LongMem
 bun install && bun run build && bun test
 ```
 
-**Tests:** 71 tests across 2 files (privacy modes + session primer).
+**Tests:** 85 tests across 5 files.
 
 **Rules:** hooks must always exit 0, the daemon only binds to localhost, config changes must preserve existing user settings, no secrets in logs.
 
