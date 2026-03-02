@@ -181,12 +181,12 @@ if (!flags.dryRun) {
 
 // ─── 4. Branch: TUI or Headless ─────────────────────────────────────────────
 
-if (flags.yes || !process.stdin.isTTY) {
-  // Headless: couple + service + start + verify (no prompts)
-  await applyHeadless(detection, flags);
-} else {
+if (flags.tui || (!flags.yes && process.stdin.isTTY)) {
   // Interactive: full TUI
   await runFullTui({ detection, noService: flags.noService, dryRun: flags.dryRun });
+} else {
+  // Headless: couple + service + start + verify (no prompts)
+  await applyHeadless(detection, flags);
 }
 
 // ─── Headless Flow ──────────────────────────────────────────────────────────

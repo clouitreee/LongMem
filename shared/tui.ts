@@ -3,7 +3,7 @@
  * Uses @clack/prompts for all interactive screens.
  * Single export: runFullTui(options?)
  */
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync, readdirSync, rmdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import * as p from "@clack/prompts";
@@ -11,6 +11,7 @@ import { detectEnvironment, printDetectionSummary, type DetectionResult } from "
 import { runCoupleFlow } from "./couple.ts";
 import { installService } from "./service-unit.ts";
 import { verifyInstallation } from "./verify.ts";
+import { scanEcosystem } from "./ecosystem.ts";
 import { loadSettings, saveConfig, PROVIDERS } from "../daemon/config.ts";
 import type { PrivacyMode } from "../daemon/config.ts";
 
@@ -372,7 +373,79 @@ export async function runFullTui(options: TuiOptions = {}): Promise<void> {
     p.note(lines.join("\n"), result.allPassed ? "All checks passed" : "Some checks failed");
   }
 
-  // ── Screen 8: Done ─────────────────────────────────────────────────────────
+  // ── Screen 8: Ecosystem Scan & Memory Migration ──────────────────────────
+
+  if (!dryRun) {
+    const ecoscan = scanEcosystem();
+
+    if (ecoscan.files.length > 0) {
+      // Ingest into LongMem
+      const s3 = p.spinner();
+      s3.start("Indexing ecosystem files");
+      try {
+        const payload = ecoscan.files.map(f => ({
+          path: f.path, content: f.content, hash: f.hash, source: f.source,
+        }));
+        const res = await fetch("http://127.0.0.1:38741/ecosystem/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ files: payload }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) {
+          const result = await res.json() as any;
+          s3.stop(`Indexed ${result.ingested} file(s) into memory (${result.skipped} unchanged)`);
+        } else {
+          s3.stop("Ecosystem indexing completed");
+        }
+      } catch {
+        s3.stop("Ecosystem indexing skipped (daemon not reachable)");
+      }
+
+      // Find auto-memory files eligible for removal
+      const memoryFiles = ecoscan.files.filter(f => f.source === "claude-memory");
+
+      if (memoryFiles.length > 0) {
+        const fileLines = memoryFiles.map(f => {
+          const sizeKB = (f.size / 1024).toFixed(1);
+          return `  ${f.path} (${sizeKB}KB)`;
+        });
+        p.note(fileLines.join("\n"), `Found ${memoryFiles.length} Claude Code auto-memory file(s)`);
+
+        const migrate = await p.select({
+          message: "LongMem replaces Claude Code's built-in memory. Remove these auto-memory files?",
+          initialValue: "keep",
+          options: [
+            { value: "keep", label: "Keep them", hint: "no changes, LongMem works alongside" },
+            { value: "remove", label: "Remove all", hint: "content already indexed into LongMem" },
+          ],
+        });
+
+        if (!p.isCancel(migrate) && migrate === "remove") {
+          let removed = 0;
+          const parentDirs = new Set<string>();
+          for (const f of memoryFiles) {
+            try {
+              const dir = join(f.path, "..");
+              parentDirs.add(dir);
+              unlinkSync(f.path);
+              removed++;
+            } catch {}
+          }
+          // Clean up empty memory/ directories
+          for (const dir of parentDirs) {
+            try {
+              const remaining = readdirSync(dir);
+              if (remaining.length === 0) rmdirSync(dir);
+            } catch {}
+          }
+          p.log.success(`Removed ${removed} auto-memory file(s)`);
+        }
+      }
+    }
+  }
+
+  // ── Screen 9: Done ─────────────────────────────────────────────────────────
 
   const summaryLines = [
     `Privacy: ${settings.privacy?.mode || "safe"}`,

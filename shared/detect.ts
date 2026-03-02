@@ -203,7 +203,7 @@ async function detectDaemon(): Promise<DetectedDaemon> {
   // Check service installed
   let serviceInstalled = false;
   const p = detectPlatform();
-  if (p === "linux-x64") {
+  if (p.startsWith("linux")) {
     serviceInstalled = existsSync(
       join(HOME, ".config", "systemd", "user", "longmem.service")
     );
