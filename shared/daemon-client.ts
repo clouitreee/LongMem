@@ -1,11 +1,13 @@
 import type {
   ObserveRequest, PromptRequest, SessionStartRequest, SessionEndRequest,
   SearchResponse, ObservationResponse, TimelineResponse, HealthResponse,
+  PromptContextResponse,
 } from "./types.ts";
 
 const DEFAULT_PORT = 38741;
 const SHORT_TIMEOUT = 2000;  // Fire-and-forget operations
 const SEARCH_TIMEOUT = 5000; // Search operations
+const CONTEXT_TIMEOUT = 1500; // Auto-context (must be fast)
 
 export class DaemonClient {
   private baseURL: string;
@@ -46,6 +48,22 @@ export class DaemonClient {
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
     } catch { /* silent */ }
+  }
+
+  // Save prompt AND get relevant context in one call
+  async promptWithContext(data: PromptRequest): Promise<PromptContextResponse | null> {
+    try {
+      const res = await fetch(`${this.baseURL}/prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, with_context: true }),
+        signal: AbortSignal.timeout(CONTEXT_TIMEOUT),
+      });
+      if (!res.ok) return null;
+      return await res.json() as PromptContextResponse;
+    } catch {
+      return null;
+    }
   }
 
   async sessionStart(data: SessionStartRequest): Promise<void> {

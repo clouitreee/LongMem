@@ -233,10 +233,15 @@ function patchOpenCode(
 
 // ─── Main Export ────────────────────────────────────────────────────────────
 
+// askFn type: (question, defaultYes) => Promise<boolean>
+type AskFn = (question: string, defaultYes: boolean) => Promise<boolean>;
+
 export async function runCoupleFlow(
   detection: DetectionResult,
-  options: CoupleOptions
+  options: CoupleOptions,
+  askFn?: AskFn,
 ): Promise<CoupleResult> {
+  const ask = askFn || askYesNo; // Use shared askFn if provided, else fallback
   const result: CoupleResult = { clientsPatched: [], clientsSkipped: [], errors: [] };
 
   for (const client of detection.clients) {
@@ -266,7 +271,7 @@ export async function runCoupleFlow(
     // Ask permission
     let approved = options.yes;
     if (!approved) {
-      approved = await askYesNo("Apply changes?", true);
+      approved = await ask("Apply changes?", true);
     }
 
     if (!approved) {

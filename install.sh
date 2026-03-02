@@ -348,7 +348,7 @@ else
 SETTINGS
     chmod 600 "$SETTINGS_FILE"
     ok "Created ${SETTINGS_FILE}"
-    warn "Set your compression API key in ${SETTINGS_FILE} to enable summaries"
+    warn "Run 'bun install.ts' to configure compression interactively"
   else
     ok "${SETTINGS_FILE} preserved"
   fi
@@ -962,17 +962,19 @@ fi
 # ─── Final notes ─────────────────────────────────────────────────────────────
 if [[ "$FLAG_DRY_RUN" == false ]]; then
   if grep -q '"apiKey": ""' "$SETTINGS_FILE" 2>/dev/null; then
-    echo "Next step — set compression API key:"
-    echo "  nano ${SETTINGS_FILE}"
-    echo "  (memory works without a key — observations are stored raw)"
+    echo "To configure compression, run the installer with Bun:"
+    echo "  cd ~/longmem && bun install.ts"
+    echo "  (compression works without a key — observations are stored raw)"
     echo ""
   fi
 
-  echo "MCP tools available to the LLM:"
-  echo "  mem_search   — search past sessions"
-  echo "  mem_timeline — chronological context"
-  echo "  mem_get      — full observation details"
+  echo "══ LongMem is ready! ═══════════════════════════════════"
   echo ""
-  echo "To uninstall: bash ${INSTALL_DIR}/uninstall.sh"
+  echo "  MCP tools available to the LLM:"
+  echo "    mem_search   — search past sessions"
+  echo "    mem_timeline — chronological context"
+  echo "    mem_get      — full observation details"
+  echo ""
+  echo "  Changes take effect in your next Claude Code session."
   echo ""
 fi

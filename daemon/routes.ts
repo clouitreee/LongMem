@@ -7,6 +7,8 @@ import {
 import {
   searchObservations, searchSessions, searchUserObservations,
   getRecentObservationsWithDecay, getTimeline,
+  getRecentSessionPrompts, detectTopicChange, isVaguePrompt,
+  searchProjectContext, formatContextBlock,
 } from "./search.ts";
 import { stripAllMemoryTags, truncateInput, truncateOutput, isFullyPrivate, redactSecrets } from "./privacy.ts";
 import { IdleDetector } from "./idle-detector.ts";
@@ -79,6 +81,7 @@ export function createRoutes(
       const text = String(body.text || "");
       const project = String(body.project || "default");
       const directory = String(body.directory || "");
+      const withContext = Boolean(body.with_context);
 
       if (!text.trim()) return json({ status: "skipped" });
 
@@ -86,9 +89,37 @@ export function createRoutes(
       if (!dbSessionId) return json({ error: "Failed to get session" }, 500);
 
       const cleanText = privacyEnabled ? redactSecrets(stripAllMemoryTags(text)) : stripAllMemoryTags(text);
+
+      // Get recent prompts BEFORE saving current one (for topic change detection)
+      let recentPrompts: string[] = [];
+      if (withContext) {
+        recentPrompts = getRecentSessionPrompts(dbSessionId, 3);
+      }
+
       updateSessionPrompt(dbSessionId, cleanText);
 
-      return json({ status: "ok" });
+      if (!withContext) {
+        return json({ status: "ok" });
+      }
+
+      // ── Auto-context: detect topic change + search ──
+      const topicChanged = detectTopicChange(cleanText, recentPrompts);
+
+      if (!topicChanged) {
+        // Same topic as recent prompts — no new context needed
+        return json({ status: "ok", context: null, topic_changed: false });
+      }
+
+      // Search by text + project for relevant context
+      const searchQuery = isVaguePrompt(cleanText) ? "" : cleanText;
+      const results = searchProjectContext(searchQuery, project, 5);
+      const context = formatContextBlock(results, project);
+
+      return json({
+        status: "ok",
+        context: context || null,
+        topic_changed: topicChanged,
+      });
     },
 
     async handleSessionStart(body: Record<string, unknown>): Promise<Response> {

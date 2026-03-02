@@ -13,11 +13,13 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { createInterface } from "readline";
 import { detectEnvironment, printDetectionSummary } from "./shared/detect.ts";
 import { runCoupleFlow } from "./shared/couple.ts";
 import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
 import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
+import { runTuiConfig } from "./shared/tui-config.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
@@ -47,6 +49,25 @@ const YELLOW = "\x1b[33m";
 const BOLD = "\x1b[1m";
 const RESET = "\x1b[0m";
 
+// ─── Persistent Readline ────────────────────────────────────────────────────
+// Single readline for the entire installer — fixes stdin corruption bug
+// where creating/destroying multiple readline interfaces on process.stdin
+// causes the 3rd+ instance to get an immediate 'close' event in Bun.
+
+const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+
+function askYesNo(question: string, defaultYes: boolean): Promise<boolean> {
+  if (flags.yes) return Promise.resolve(defaultYes);
+  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
+  return new Promise((resolve) => {
+    rl.question(`  ${question} ${suffix}: `, (answer: string) => {
+      const a = answer.trim().toLowerCase();
+      if (a === "") return resolve(defaultYes);
+      resolve(a === "y" || a === "yes");
+    });
+  });
+}
+
 // ─── Banner ─────────────────────────────────────────────────────────────────
 
 console.log(`${BOLD}╔══════════════════════════════════╗${RESET}`);
@@ -67,6 +88,7 @@ printDetectionSummary(detection);
 if (detection.clients.length === 0) {
   console.log("No supported clients found.");
   console.log("Install Claude Code CLI or OpenCode first, then re-run this installer.");
+  rl.close();
   process.exit(1);
 }
 
@@ -145,6 +167,7 @@ if (!flags.dryRun) {
   }
   if (binCount === 0 && jsCount === 0) {
     console.error("✗ No built files found. Run: bun run build");
+    rl.close();
     process.exit(1);
   }
 
@@ -167,7 +190,6 @@ if (!flags.dryRun) {
     writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
     chmodSync(settingsPath, 0o600);
     console.log(`${GREEN}✓${RESET} Created ${settingsPath}`);
-    console.log(`  ${YELLOW}⚠${RESET}  Set your API key in settings.json to enable compression`);
   } else {
     console.log(`${GREEN}✓${RESET} ${settingsPath} preserved`);
   }
@@ -181,7 +203,7 @@ const coupleResult = await runCoupleFlow(detection, {
   yes: flags.yes,
   dryRun: flags.dryRun,
   skipDaemon: flags.noService,
-});
+}, askYesNo);
 
 // ─── 5. Daemon Service ──────────────────────────────────────────────────────
 
@@ -204,17 +226,7 @@ if (!flags.noService && !flags.dryRun) {
   if (daemonExec) {
     let shouldInstall = flags.yes;
     if (!shouldInstall && !detection.daemon.serviceInstalled) {
-      process.stdout.write(`  Install system service for daemon auto-start on login? [Y/n]: `);
-      shouldInstall = await new Promise<boolean>((resolve) => {
-        const { createInterface } = require("readline");
-        const rl = createInterface({ input: process.stdin, terminal: false });
-        rl.once("line", (line: string) => {
-          rl.close();
-          const answer = line.trim().toLowerCase();
-          resolve(answer === "" || answer === "y" || answer === "yes");
-        });
-        rl.once("close", () => resolve(true));
-      });
+      shouldInstall = await askYesNo("Install system service for daemon auto-start on login?", true);
     } else if (detection.daemon.serviceInstalled) {
       shouldInstall = true; // Re-install to update paths
     }
@@ -292,17 +304,7 @@ if (!flags.dryRun) {
 
     let shouldIngest = flags.yes;
     if (!shouldIngest) {
-      process.stdout.write(`  Index these into LongMem memory? [Y/n]: `);
-      shouldIngest = await new Promise<boolean>((resolve) => {
-        const { createInterface } = require("readline");
-        const rl = createInterface({ input: process.stdin, terminal: false });
-        rl.once("line", (line: string) => {
-          rl.close();
-          const answer = line.trim().toLowerCase();
-          resolve(answer === "" || answer === "y" || answer === "yes");
-        });
-        rl.once("close", () => resolve(true));
-      });
+      shouldIngest = await askYesNo("Index these into LongMem memory?", true);
     }
 
     if (shouldIngest) {
@@ -325,7 +327,7 @@ if (!flags.dryRun) {
           const result = await res.json() as any;
           console.log(`  ${GREEN}✓${RESET} Indexed ${result.ingested} file(s) into memory (${result.skipped} unchanged)\n`);
 
-          // Offer cleanup — remove source files now that they're in LongMem
+          // Offer cleanup — move source files to backup now that they're in LongMem
           const removable = ecoscan.files.filter(f =>
             f.source === "claude-memory" || f.source === "claude-global"
           );
@@ -340,32 +342,25 @@ if (!flags.dryRun) {
             }
             console.log("");
 
-            // Default NO — destructive action
-            let shouldRemove = false;
-            if (!flags.yes) {
-              process.stdout.write(`  Remove them? [y/N]: `);
-              shouldRemove = await new Promise<boolean>((resolve) => {
-                const { createInterface } = require("readline");
-                const rl = createInterface({ input: process.stdin, terminal: false });
-                rl.once("line", (line: string) => {
-                  rl.close();
-                  const answer = line.trim().toLowerCase();
-                  resolve(answer === "y" || answer === "yes");
-                });
-                rl.once("close", () => resolve(false));
-              });
-            }
-            // --yes does NOT auto-remove. Destructive action requires explicit confirmation.
+            // Default NO — destructive action. --yes does NOT auto-remove.
+            const shouldRemove = await askYesNo("Remove them?", false);
 
             if (shouldRemove) {
               let removed = 0;
               for (const f of removable) {
                 try {
-                  unlinkSync(f.path);
+                  // Move to backup, not rm
+                  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+                  const bakPath = `${f.path}.longmem-backup-${ts}`;
+                  const { renameSync } = require("fs");
+                  renameSync(f.path, bakPath);
                   removed++;
-                } catch {}
+                } catch {
+                  // Fallback: try unlinkSync if rename fails (cross-device)
+                  try { unlinkSync(f.path); removed++; } catch {}
+                }
               }
-              console.log(`  ${GREEN}✓${RESET} Removed ${removed} file(s)\n`);
+              console.log(`  ${GREEN}✓${RESET} Moved ${removed} file(s) to backup\n`);
             } else {
               console.log("  Kept original files.\n");
             }
@@ -388,22 +383,44 @@ if (!flags.dryRun) {
   }
 }
 
-// ─── 8. Final Notes ─────────────────────────────────────────────────────────
+// ─── 8. Compression Config (TUI) ────────────────────────────────────────────
 
 if (!flags.dryRun) {
   const settingsPath = join(MEMORY_DIR, "settings.json");
+  let needsConfig = false;
   try {
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    if (!settings.compression?.apiKey) {
-      console.log("Next step: set your compression API key:");
-      console.log(`  nano ${settingsPath}`);
-      console.log("  (compression works without a key — observations are stored raw)\n");
-    }
+    needsConfig = !settings.compression?.apiKey;
   } catch {}
 
-  console.log("MCP tools available to the LLM:");
-  console.log("  mem_search   — search past sessions");
-  console.log("  mem_timeline — chronological context");
-  console.log("  mem_get      — full observation details");
+  if (needsConfig && !flags.yes) {
+    const wantsConfigure = await askYesNo("Configure compression now?", true);
+
+    // Close our readline BEFORE clack takes over stdin
+    rl.close();
+
+    if (wantsConfigure) {
+      await runTuiConfig();
+    } else {
+      console.log(`\n  ${YELLOW}⚠${RESET}  No API key — compression disabled.`);
+      console.log(`  Run ${BOLD}bun install.ts${RESET} again to configure later.\n`);
+    }
+  } else {
+    rl.close();
+  }
+} else {
+  rl.close();
+}
+
+// ─── 9. Final Summary ───────────────────────────────────────────────────────
+
+if (!flags.dryRun) {
+  console.log(`${BOLD}══ LongMem is ready! ════════════════════════════════════${RESET}\n`);
+  console.log("  MCP tools available to the LLM:");
+  console.log("    mem_search   — search past sessions");
+  console.log("    mem_timeline — chronological context");
+  console.log("    mem_get      — full observation details");
+  console.log("");
+  console.log("  Changes take effect in your next Claude Code session.");
   console.log("");
 }
