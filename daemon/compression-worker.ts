@@ -7,6 +7,11 @@ import {
   linkObservationConcepts,
 } from "./db.ts";
 import { CompressionSDK } from "./compression-sdk.ts";
+import {
+  redactSecrets, containsHighRiskPattern,
+  compileCustomPatterns, redactWithCustomPatterns,
+} from "./privacy.ts";
+import type { PrivacyMode } from "./config.ts";
 
 interface WorkerConfig {
   maxConcurrent: number;
@@ -16,6 +21,11 @@ interface WorkerConfig {
   maxRetries: number;
 }
 
+interface PrivacyConfig {
+  mode: PrivacyMode;
+  customPatterns: Array<{ pattern: string; name: string }>;
+}
+
 export class CompressionWorker {
   private processing = false;
   private consecutiveFailures = 0;
@@ -23,11 +33,17 @@ export class CompressionWorker {
   private circuitTimer: ReturnType<typeof setTimeout> | null = null;
   private requestCount = 0;
   private requestWindowStart = Date.now();
+  private privacyMode: PrivacyMode;
+  private compiledCustom: RegExp[];
 
   constructor(
     private sdk: CompressionSDK,
-    private config: WorkerConfig
-  ) {}
+    private config: WorkerConfig,
+    privacyConfig?: PrivacyConfig,
+  ) {
+    this.privacyMode = privacyConfig?.mode ?? "safe";
+    this.compiledCustom = compileCustomPatterns(privacyConfig?.customPatterns ?? []);
+  }
 
   async processQueue(): Promise<void> {
     if (this.processing || this.circuitOpen) return;
@@ -50,10 +66,39 @@ export class CompressionWorker {
 
           updateCompressionJob(job.id, "processing");
 
+          // ── Egress gate: re-sanitize before sending to external LLM ──
+          let egressInput = obs.tool_input || "{}";
+          let egressOutput = obs.tool_output || "";
+
+          if (this.privacyMode !== "none") {
+            egressInput = redactSecrets(egressInput);
+            egressOutput = redactSecrets(egressOutput);
+            if (this.compiledCustom.length > 0) {
+              egressInput = redactWithCustomPatterns(egressInput, this.compiledCustom);
+              egressOutput = redactWithCustomPatterns(egressOutput, this.compiledCustom);
+            }
+          }
+
+          // Kill switch: if high-risk pattern survives redaction → quarantine
+          if (this.privacyMode !== "none" && containsHighRiskPattern(egressOutput)) {
+            updateCompressionJob(job.id, "quarantined", "high_risk_pattern_detected_post_redaction");
+            continue;
+          }
+          if (this.privacyMode !== "none" && containsHighRiskPattern(egressInput)) {
+            updateCompressionJob(job.id, "quarantined", "high_risk_pattern_in_input");
+            continue;
+          }
+
+          // Path-excluded observations: skip compression (metadata-only in DB)
+          if (egressOutput === "[EXCLUDED: path matched denylist]") {
+            updateCompressionJob(job.id, "skipped", "path_excluded");
+            continue;
+          }
+
           const compressed = await this.sdk.compress(
             obs.tool_name,
-            JSON.parse(obs.tool_input || "{}"),
-            obs.tool_output
+            JSON.parse(egressInput),
+            egressOutput
           );
 
           updateObservationSummary(

@@ -10,7 +10,11 @@ import {
   getRecentSessionPrompts, detectTopicChange, isVaguePrompt,
   searchProjectContext, formatContextBlock,
 } from "./search.ts";
-import { stripAllMemoryTags, truncateInput, truncateOutput, isFullyPrivate, redactSecrets } from "./privacy.ts";
+import {
+  stripAllMemoryTags, truncateInput, truncateOutput, isFullyPrivate,
+  redactSecrets, extractPathHint, isExcludedPath,
+  compileCustomPatterns, redactWithCustomPatterns,
+} from "./privacy.ts";
 import { IdleDetector } from "./idle-detector.ts";
 import { CompressionWorker } from "./compression-worker.ts";
 import type { MemoryConfig } from "./config.ts";
@@ -37,8 +41,10 @@ export function createRoutes(
   worker: CompressionWorker,
   config: MemoryConfig
 ) {
-  const privacyEnabled = config.privacy.redactSecrets;
+  const privacyMode = config.privacy.mode;
+  const privacyEnabled = privacyMode !== "none";
   const compressionEnabled = config.compression.enabled;
+  const compiledCustom = compileCustomPatterns(config.privacy.customPatterns);
 
   return {
     async handleObserve(body: Record<string, unknown>): Promise<Response> {
@@ -47,17 +53,47 @@ export function createRoutes(
       const sessionId = String(body.session_id || "default");
       const toolName = String(body.tool_name || "unknown");
       const toolInput = (body.tool_input as Record<string, unknown>) || {};
-      const rawOutput = String(body.tool_output || "");
+      let rawOutput = String(body.tool_output || "");
       const promptNumber = Number(body.prompt_number || 0);
       const project = String(body.project || "default");
       const directory = String(body.directory || "");
 
-      let inputStr = truncateInput(stripAllMemoryTags(JSON.stringify(toolInput)), config.privacy.maxInputSize);
+      // ── Fast-path: truncate huge inputs before regex ──
+      let rawInput = JSON.stringify(toolInput);
+      if (rawInput.length > 100_000) rawInput = rawInput.slice(0, config.privacy.maxInputSize);
+      if (rawOutput.length > 100_000) rawOutput = rawOutput.slice(0, config.privacy.maxOutputSize);
+
+      let inputStr = truncateInput(stripAllMemoryTags(rawInput), config.privacy.maxInputSize);
       let outputStr = truncateOutput(stripAllMemoryTags(rawOutput), config.privacy.maxOutputSize);
 
+      // ── Tool exclusion gate ──
+      if (config.privacy.excludeTools.includes(toolName)) {
+        return json({ status: "excluded", reason: "tool_excluded" });
+      }
+
+      // ── Path exclusion gate (metadata-only, NO content saved) ──
+      const pathHint = extractPathHint(inputStr);
+      if (pathHint && isExcludedPath(pathHint, config.privacy.excludePaths)) {
+        const dbSessionId = getOrCreateDbSession(sessionId, project, directory);
+        if (!dbSessionId) return json({ error: "Failed to create session" }, 500);
+        const obsId = saveObservation(
+          dbSessionId, toolName,
+          JSON.stringify({ file_path: pathHint }),
+          "[EXCLUDED: path matched denylist]",
+          promptNumber,
+          JSON.stringify({ reason: "path_excluded", path: pathHint, mode: config.privacy.mode })
+        );
+        return json({ status: "excluded", observation_id: obsId, reason: "path_denylist" });
+      }
+
+      // ── Secret redaction ──
       if (privacyEnabled) {
         inputStr = redactSecrets(inputStr);
         outputStr = redactSecrets(outputStr);
+        if (compiledCustom.length > 0) {
+          inputStr = redactWithCustomPatterns(inputStr, compiledCustom);
+          outputStr = redactWithCustomPatterns(outputStr, compiledCustom);
+        }
       }
 
       if (isFullyPrivate(outputStr)) {
@@ -102,24 +138,30 @@ export function createRoutes(
         return json({ status: "ok" });
       }
 
-      // ── Auto-context: detect topic change + search ──
-      const topicChanged = detectTopicChange(cleanText, recentPrompts);
+      // ── Auto-context: detect topic change + search (300ms timeout) ──
+      try {
+        const contextPromise = (async () => {
+          const topicChanged = detectTopicChange(cleanText, recentPrompts);
+          if (!topicChanged) return { context: null, topic_changed: false };
 
-      if (!topicChanged) {
-        // Same topic as recent prompts — no new context needed
+          const searchQuery = isVaguePrompt(cleanText) ? "" : cleanText;
+          const results = searchProjectContext(searchQuery, project, 5);
+          const context = formatContextBlock(results, project);
+          return { context: context || null, topic_changed: true };
+        })();
+
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 300));
+        const result = await Promise.race([contextPromise, timeout]);
+
+        if (result === null) {
+          // Timeout — return ok without context (silent fallback)
+          return json({ status: "ok", context: null, topic_changed: false });
+        }
+        return json({ status: "ok", ...result });
+      } catch {
+        // Any error in context search — fail silently
         return json({ status: "ok", context: null, topic_changed: false });
       }
-
-      // Search by text + project for relevant context
-      const searchQuery = isVaguePrompt(cleanText) ? "" : cleanText;
-      const results = searchProjectContext(searchQuery, project, 5);
-      const context = formatContextBlock(results, project);
-
-      return json({
-        status: "ok",
-        context: context || null,
-        topic_changed: topicChanged,
-      });
     },
 
     async handleSessionStart(body: Record<string, unknown>): Promise<Response> {
