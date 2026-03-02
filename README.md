@@ -335,7 +335,7 @@ Your editor  -->  longmemd (local)  -->  ~/.longmem/memory.db
   daemon.js       <- memory service
   mcp.js          <- search tools
   hooks/          <- activity capture
-  bin/            <- compiled binaries (longmemd, longmem-mcp, longmem-hook, longmem-cli)
+  bin/            <- longmem (monolith) + symlinks (longmemd, longmem-mcp, longmem-hook, longmem-cli)
   logs/
 ```
 

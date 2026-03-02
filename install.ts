@@ -11,7 +11,7 @@
  *   bun install.ts --all        # Same as --opencode
  *   bun install.ts --tui        # Force TUI even for re-configuration
  */
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync, symlinkSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { detectEnvironment, printDetectionSummary } from "./shared/detect.ts";
@@ -27,7 +27,7 @@ const DIST_DIR = join(import.meta.dir, "dist");
 // When running as compiled binary from ~/.longmem/bin/, dist/ won't exist
 // but the binaries are already in place (downloaded by install.sh)
 const hasDist = existsSync(DIST_DIR);
-const binariesInPlace = existsSync(join(MEMORY_DIR, "bin", "longmemd"));
+const binariesInPlace = existsSync(join(MEMORY_DIR, "bin", "longmem")) || existsSync(join(MEMORY_DIR, "bin", "longmemd"));
 
 // ─── Parse Args ─────────────────────────────────────────────────────────────
 
@@ -131,15 +131,19 @@ if (!flags.dryRun) {
       if (existsSync(src)) { copyFileSync(src, dst); jsCount++; }
     }
 
-    const binFiles: [string, string][] = [
-      [join(DIST_DIR, "bin", `longmemd-${detection.platform}`), join(MEMORY_DIR, "bin", "longmemd")],
-      [join(DIST_DIR, "bin", `longmem-mcp-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-mcp")],
-      [join(DIST_DIR, "bin", `longmem-hook-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-hook")],
-    ];
-
+    const monolith = join(DIST_DIR, "bin", `longmem-${detection.platform}`);
+    const dest = join(MEMORY_DIR, "bin", "longmem");
     let binCount = 0;
-    for (const [src, dst] of binFiles) {
-      if (existsSync(src)) { copyFileSync(src, dst); chmodSync(dst, 0o755); binCount++; }
+    if (existsSync(monolith)) {
+      copyFileSync(monolith, dest);
+      chmodSync(dest, 0o755);
+      binCount = 1;
+    }
+    // Create symlinks for backward compatibility
+    for (const name of ["longmemd", "longmem-mcp", "longmem-hook", "longmem-cli"]) {
+      const link = join(MEMORY_DIR, "bin", name);
+      try { unlinkSync(link); } catch {}
+      symlinkSync("longmem", link);
     }
 
     if (binCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${binCount} binaries`);

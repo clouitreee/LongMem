@@ -15,34 +15,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: bun-linux-x64
-            daemon_out: longmemd-linux-x64
-            mcp_out: longmem-mcp-linux-x64
-            hook_out: longmem-hook-linux-x64
-            cli_out: longmem-cli-linux-x64
+            out: longmem-linux-x64
           - os: ubuntu-latest
             target: bun-linux-arm64
-            daemon_out: longmemd-linux-arm64
-            mcp_out: longmem-mcp-linux-arm64
-            hook_out: longmem-hook-linux-arm64
-            cli_out: longmem-cli-linux-arm64
+            out: longmem-linux-arm64
           - os: macos-latest
             target: bun-darwin-arm64
-            daemon_out: longmemd-macos-arm64
-            mcp_out: longmem-mcp-macos-arm64
-            hook_out: longmem-hook-macos-arm64
-            cli_out: longmem-cli-macos-arm64
+            out: longmem-macos-arm64
           - os: macos-latest
             target: bun-darwin-x64
-            daemon_out: longmemd-macos-x64
-            mcp_out: longmem-mcp-macos-x64
-            hook_out: longmem-hook-macos-x64
-            cli_out: longmem-cli-macos-x64
+            out: longmem-macos-x64
           - os: windows-latest
             target: bun-windows-x64
-            daemon_out: longmemd-windows-x64.exe
-            mcp_out: longmem-mcp-windows-x64.exe
-            hook_out: longmem-hook-windows-x64.exe
-            cli_out: longmem-cli-windows-x64.exe
+            out: longmem-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -56,17 +41,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build daemon binary
-        run: bun build ./daemon/server.ts --compile --outfile dist/bin/${{ matrix.daemon_out }} --target ${{ matrix.target }}
-
-      - name: Build MCP binary
-        run: bun build ./mcp/server.ts --compile --outfile dist/bin/${{ matrix.mcp_out }} --target ${{ matrix.target }}
-
-      - name: Build hook binary
-        run: bun build ./hooks/main.ts --compile --outfile dist/bin/${{ matrix.hook_out }} --target ${{ matrix.target }}
-
-      - name: Build CLI binary
-        run: bun build ./install.ts --compile --outfile dist/bin/${{ matrix.cli_out }} --target ${{ matrix.target }}
+      - name: Build monolith binary
+        run: bun build ./longmem.ts --compile --outfile dist/bin/${{ matrix.out }} --target ${{ matrix.target }}
 
       - name: Build OpenCode plugin (JS)
         if: matrix.target == 'bun-linux-x64'
@@ -76,17 +52,13 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd dist/bin
-          for f in ${{ matrix.daemon_out }} ${{ matrix.mcp_out }} ${{ matrix.hook_out }} ${{ matrix.cli_out }}; do
-            sha256sum "$f" > "$f.sha256"
-          done
+          sha256sum "${{ matrix.out }}" > "${{ matrix.out }}.sha256"
 
       - name: Compute checksums (Windows)
         if: runner.os == 'Windows'
         run: |
           cd dist/bin
-          foreach ($f in @("${{ matrix.daemon_out }}", "${{ matrix.mcp_out }}", "${{ matrix.hook_out }}", "${{ matrix.cli_out }}")) {
-            (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() + "  $f" | Out-File "$f.sha256" -Encoding utf8
-          }
+          (Get-FileHash "${{ matrix.out }}" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.out }}" | Out-File "${{ matrix.out }}.sha256" -Encoding utf8
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -140,33 +112,12 @@ jobs:
           {
             "version": "${TAG}",
             "binaries": {
-              "daemon": {
-                "linux-x64":    "${BASE}/longmemd-linux-x64",
-                "linux-arm64":  "${BASE}/longmemd-linux-arm64",
-                "macos-arm64":  "${BASE}/longmemd-macos-arm64",
-                "macos-x64":    "${BASE}/longmemd-macos-x64",
-                "windows-x64":  "${BASE}/longmemd-windows-x64.exe"
-              },
-              "mcp": {
-                "linux-x64":    "${BASE}/longmem-mcp-linux-x64",
-                "linux-arm64":  "${BASE}/longmem-mcp-linux-arm64",
-                "macos-arm64":  "${BASE}/longmem-mcp-macos-arm64",
-                "macos-x64":    "${BASE}/longmem-mcp-macos-x64",
-                "windows-x64":  "${BASE}/longmem-mcp-windows-x64.exe"
-              },
-              "hook": {
-                "linux-x64":    "${BASE}/longmem-hook-linux-x64",
-                "linux-arm64":  "${BASE}/longmem-hook-linux-arm64",
-                "macos-arm64":  "${BASE}/longmem-hook-macos-arm64",
-                "macos-x64":    "${BASE}/longmem-hook-macos-x64",
-                "windows-x64":  "${BASE}/longmem-hook-windows-x64.exe"
-              },
-              "cli": {
-                "linux-x64":    "${BASE}/longmem-cli-linux-x64",
-                "linux-arm64":  "${BASE}/longmem-cli-linux-arm64",
-                "macos-arm64":  "${BASE}/longmem-cli-macos-arm64",
-                "macos-x64":    "${BASE}/longmem-cli-macos-x64",
-                "windows-x64":  "${BASE}/longmem-cli-windows-x64.exe"
+              "monolith": {
+                "linux-x64":    "${BASE}/longmem-linux-x64",
+                "linux-arm64":  "${BASE}/longmem-linux-arm64",
+                "macos-arm64":  "${BASE}/longmem-macos-arm64",
+                "macos-x64":    "${BASE}/longmem-macos-x64",
+                "windows-x64":  "${BASE}/longmem-windows-x64.exe"
               },
               "plugin": "${BASE}/plugin.js"
             }

@@ -115,13 +115,14 @@ download() {
   fi
 }
 
-# Download all binaries
-download "${BASE_URL}/longmemd-${PLATFORM}" "${BIN_DIR}/longmemd"
-download "${BASE_URL}/longmem-mcp-${PLATFORM}" "${BIN_DIR}/longmem-mcp"
-download "${BASE_URL}/longmem-hook-${PLATFORM}" "${BIN_DIR}/longmem-hook"
-download "${BASE_URL}/longmem-cli-${PLATFORM}" "${BIN_DIR}/longmem-cli"
+# Download monolith binary + create symlinks
+download "${BASE_URL}/longmem-${PLATFORM}" "${BIN_DIR}/longmem"
 
-ok "Downloaded all binaries"
+for name in longmemd longmem-mcp longmem-hook longmem-cli; do
+  ln -sf longmem "${BIN_DIR}/${name}"
+done
+
+ok "Downloaded monolith binary + created symlinks"
 echo ""
 
 # Write version file
