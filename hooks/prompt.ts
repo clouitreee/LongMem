@@ -1,8 +1,14 @@
 #!/usr/bin/env bun
 /**
  * Claude Code CLI — UserPromptSubmit hook
- * Captures user prompts for FTS indexing.
- * Always exits 0.
+ * Captures user prompts AND auto-injects relevant memory context.
+ *
+ * Flow:
+ * 1. Parse prompt from stdin
+ * 2. Ensure daemon running
+ * 3. POST /prompt with with_context=true
+ * 4. If daemon returns context → output to stdout (Claude Code injects it)
+ * 5. Always exit 0
  */
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { DaemonClient } from "../shared/daemon-client.ts";
@@ -28,7 +34,20 @@ async function main(): Promise<void> {
   await ensureDaemonRunning();
 
   const client = new DaemonClient();
-  await client.prompt({ session_id: sessionId, text, project, directory } as any);
+
+  // Single call: saves prompt + returns context if topic changed
+  const result = await client.promptWithContext({
+    session_id: sessionId,
+    text,
+    project,
+    directory,
+    with_context: true,
+  });
+
+  // Output context to stdout — Claude Code injects this into the conversation
+  if (result?.context) {
+    process.stdout.write(result.context);
+  }
 }
 
 main().catch(() => {}).finally(() => process.exit(0));

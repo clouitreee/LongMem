@@ -4,7 +4,9 @@
   "description": "Persistent memory daemon for OpenCode and Claude Code CLI",
   "type": "module",
   "scripts": {
-    "build": "bun build ./daemon/server.ts --outfile dist/daemon.js --target bun && bun build ./mcp/server.ts --outfile dist/mcp.js --target bun && bun build ./hooks/post-tool.ts --outfile dist/hooks/post-tool.js --target bun && bun build ./hooks/prompt.ts --outfile dist/hooks/prompt.js --target bun && bun build ./hooks/stop.ts --outfile dist/hooks/stop.js --target bun && bun build ./install.ts --outfile dist/install.js --target bun",
+    "build": "bun build ./daemon/server.ts --outfile dist/daemon.js --target bun && bun build ./mcp/server.ts --outfile dist/mcp.js --target bun && bun build ./hooks/post-tool.ts --outfile dist/hooks/post-tool.js --target bun && bun build ./hooks/prompt.ts --outfile dist/hooks/prompt.js --target bun && bun build ./hooks/stop.ts --outfile dist/hooks/stop.js --target bun && bun build ./install.ts --outfile dist/install.js --target bun && bun build ./uninstall.ts --outfile dist/uninstall.js --target bun",
+    "test": "bun test tests/",
+    "uninstall": "bun run uninstall.ts",
     "build:opencode": "bun build ./opencode/plugin.ts --outfile dist/plugin.js --target bun --external @opencode-ai/plugin",
     "build:binary:daemon:linux-x64": "bun build ./daemon/server.ts --compile --outfile dist/bin/longmemd-linux-x64 --target bun-linux-x64",
     "build:binary:daemon:macos-arm64": "bun build ./daemon/server.ts --compile --outfile dist/bin/longmemd-macos-arm64 --target bun-darwin-arm64",
@@ -23,6 +25,7 @@
     "install-plugin": "bun run install.ts"
   },
   "dependencies": {
+    "@clack/prompts": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "openai": "^4.0.0"
   },

@@ -2,7 +2,7 @@
 
 **Persistent memory for [Claude Code CLI](https://claude.ai/code) and [OpenCode](https://opencode.ai) — both, simultaneously, without freezing your model or polluting your chat.**
 
-Every tool call, file edit, and prompt is captured and indexed in a local SQLite database. Three MCP tools (`mem_search`, `mem_get`, `mem_timeline`) let the LLM retrieve the past on demand — no auto-injection, no context bloat.
+Every tool call, file edit, and prompt is captured and indexed in a local SQLite database. Three MCP tools (`mem_search`, `mem_get`, `mem_timeline`) let the LLM retrieve the past on demand. Smart context injection detects topic changes and injects relevant memory only when it matters — no context bloat.
 
 ---
 
@@ -10,7 +10,7 @@ Every tool call, file edit, and prompt is captured and indexed in a local SQLite
 
 - **Stop repeating yourself.** Architecture decisions, debugging sessions, file locations — searchable across every future session.
 - **No freeze.** Compression runs in a separate local daemon on its own idle timer, completely decoupled from your main model's API slot.
-- **Clean chat.** Memory is retrieved via MCP tools only when the LLM asks for it — never injected automatically into every message.
+- **Smart context.** Memory is auto-injected only on topic changes — not every message. The LLM can also retrieve memory on demand via MCP tools.
 - **Safe config.** The installer detects your clients, shows exactly what it will change, asks permission, and merges hooks without overwriting your existing setup.
 
 ---
@@ -132,6 +132,9 @@ bun run install.ts --all -y  # non-interactive, both clients
 ```bash
 curl -s http://127.0.0.1:38741/health
 # -> {"status":"ok","pending":0,"sessions":0}
+
+curl -s http://127.0.0.1:38741/status
+# -> {"pid":12345,"port":38741,"uptime_seconds":120,...}
 ```
 
 ---
@@ -167,7 +170,7 @@ The installer patches `~/.claude/settings.json` with hooks and an MCP server:
 | Hook | What it does |
 |------|-------------|
 | `PostToolUse` | Captures tool name + input + output, sends to daemon (fire-and-forget) |
-| `UserPromptSubmit` | Indexes the user prompt for full-text search |
+| `UserPromptSubmit` | Detects topic changes, auto-injects relevant memory context, indexes the prompt |
 | `Stop` | Signals session end so the daemon can finalize compression |
 
 All hooks always exit `0` — they never block or break your Claude Code workflow.
@@ -230,9 +233,23 @@ launchctl start com.longmem.daemon # start
 
 If the service is not installed, hooks fall back to spawning the daemon on demand (original behavior).
 
+**Daemon management endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check — `{"status":"ok","pending":N}` |
+| `GET /status` | Detailed status — PID, port, uptime, version, service state |
+| `POST /shutdown` | Graceful remote shutdown |
+
+```bash
+# Check daemon status via CLI flag
+~/.longmem/bin/longmemd --status
+```
+
 ---
 
 ## Configuration
+
+The installer includes an interactive TUI to configure compression — select your provider, model, and API key with arrow keys and masked input. No JSON editing needed.
 
 Settings file: **`~/.longmem/settings.json`** (created on first install, `chmod 600`)
 
@@ -345,7 +362,7 @@ ls ~/.longmem/logs/
 
 **Port already in use:**
 
-Edit `~/.longmem/settings.json`, change `"port": 38741` to another value, and restart the daemon.
+The daemon has single-instance protection — if a daemon is already running, a second instance exits cleanly instead of crashing. To change the port, edit `~/.longmem/settings.json`, change `"port": 38741` to another value, and restart the daemon.
 
 **`mem_search` returns nothing:**
 
@@ -363,24 +380,31 @@ Compression is optional. Without an `apiKey`, search still works on raw data. If
 ## Uninstall
 
 ```bash
-bash ~/.longmem/uninstall.sh
+# From source
+bun run uninstall.ts
+
+# Or with flags
+bun run uninstall.ts --yes        # skip prompts
+bun run uninstall.ts --dry-run    # preview only
+bun run uninstall.ts --keep-data  # preserve memory.db
 ```
 
-The uninstall script:
-1. Stops the daemon
+The uninstaller:
+1. Stops the daemon (via `/shutdown` endpoint, then SIGTERM, then pkill fallback)
 2. Removes the systemd/launchd service (if installed)
-3. Offers to restore config backups (timestamped `.pre-longmem-*.bak` files)
-4. Removes `~/.longmem/`
+3. Restores client configs — removes only LongMem hooks/MCP, preserves your other hooks
+4. Moves `~/.longmem/` to `~/.longmem.backup-<timestamp>` (never deletes — you can recover)
 
 **Manual:**
 ```bash
 # Stop everything
+curl -s -X POST http://127.0.0.1:38741/shutdown 2>/dev/null
 pkill -f longmemd 2>/dev/null
 systemctl --user disable --now longmem 2>/dev/null  # Linux
 launchctl unload ~/Library/LaunchAgents/com.longmem.daemon.plist 2>/dev/null  # macOS
 
-# Remove install
-rm -rf ~/.longmem
+# Move install to backup
+mv ~/.longmem ~/.longmem.backup-$(date +%s)
 
 # Restore configs from the latest backup
 cp ~/.claude/settings.json.pre-longmem-*.bak ~/.claude/settings.json
@@ -438,6 +462,7 @@ git clone https://github.com/clouitreee/LongMem.git
 cd LongMem
 bun install
 bun run build    # compile all targets to dist/
+bun test         # run tests
 bun run dev      # run daemon in dev mode
 ```
 

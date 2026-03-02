@@ -31,13 +31,17 @@ async function askYesNo(question: string, defaultYes = true): Promise<boolean> {
   const suffix = defaultYes ? "[Y/n]" : "[y/N]";
   process.stdout.write(`  ${question} ${suffix}: `);
 
-  // Read a line from stdin
-  const buf = new Uint8Array(256);
-  const n = await Bun.stdin.stream().getReader().read();
-  const answer = new TextDecoder().decode(n.value).trim().toLowerCase();
-
-  if (answer === "") return defaultYes;
-  return answer === "y" || answer === "yes";
+  return new Promise((resolve) => {
+    const { createInterface } = require("readline");
+    const rl = createInterface({ input: process.stdin, terminal: false });
+    rl.once("line", (line: string) => {
+      rl.close();
+      const answer = line.trim().toLowerCase();
+      if (answer === "") return resolve(defaultYes);
+      resolve(answer === "y" || answer === "yes");
+    });
+    rl.once("close", () => resolve(defaultYes));
+  });
 }
 
 // ─── Safe Hook Merge (critical fix for overwrite bug) ───────────────────────
@@ -229,10 +233,15 @@ function patchOpenCode(
 
 // ─── Main Export ────────────────────────────────────────────────────────────
 
+// askFn type: (question, defaultYes) => Promise<boolean>
+type AskFn = (question: string, defaultYes: boolean) => Promise<boolean>;
+
 export async function runCoupleFlow(
   detection: DetectionResult,
-  options: CoupleOptions
+  options: CoupleOptions,
+  askFn?: AskFn,
 ): Promise<CoupleResult> {
+  const ask = askFn || askYesNo; // Use shared askFn if provided, else fallback
   const result: CoupleResult = { clientsPatched: [], clientsSkipped: [], errors: [] };
 
   for (const client of detection.clients) {
@@ -262,7 +271,7 @@ export async function runCoupleFlow(
     // Ask permission
     let approved = options.yes;
     if (!approved) {
-      approved = await askYesNo("Apply changes?", true);
+      approved = await ask("Apply changes?", true);
     }
 
     if (!approved) {

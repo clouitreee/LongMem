@@ -52,7 +52,20 @@ async function main(): Promise<void> {
       if (!text.trim()) return;
 
       await ensureDaemonRunning();
-      await client.prompt({ session_id: sessionId, text, project, directory } as any);
+
+      // Single call: saves prompt + returns context if topic changed
+      const result = await client.promptWithContext({
+        session_id: sessionId,
+        text,
+        project,
+        directory,
+        with_context: true,
+      });
+
+      // Output context to stdout — Claude Code injects it into the conversation
+      if (result?.context) {
+        process.stdout.write(result.context);
+      }
       break;
     }
 

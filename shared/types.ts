@@ -9,6 +9,15 @@ export interface ObserveRequest {
 export interface PromptRequest {
   session_id: string;
   text: string;
+  project?: string;
+  directory?: string;
+  with_context?: boolean;
+}
+
+export interface PromptContextResponse {
+  status: string;
+  context: string | null;
+  topic_changed: boolean;
 }
 
 export interface SessionStartRequest {
