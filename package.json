@@ -20,7 +20,10 @@
     "build:binary:hook:macos-arm64": "bun build ./hooks/main.ts --compile --outfile dist/bin/longmem-hook-macos-arm64 --target bun-darwin-arm64",
     "build:binary:hook:macos-x64": "bun build ./hooks/main.ts --compile --outfile dist/bin/longmem-hook-macos-x64 --target bun-darwin-x64",
     "build:binary:hook:windows-x64": "bun build ./hooks/main.ts --compile --outfile dist/bin/longmem-hook-windows-x64.exe --target bun-windows-x64",
-    "build:binaries": "mkdir -p dist/bin && bun run build:binary:daemon:linux-x64 && bun run build:binary:daemon:macos-arm64 && bun run build:binary:daemon:macos-x64 && bun run build:binary:mcp:linux-x64 && bun run build:binary:mcp:macos-arm64 && bun run build:binary:mcp:macos-x64 && bun run build:binary:hook:linux-x64 && bun run build:binary:hook:macos-arm64 && bun run build:binary:hook:macos-x64",
+    "build:binary:cli:linux-x64": "bun build ./install.ts --compile --outfile dist/bin/longmem-cli-linux-x64 --target bun-linux-x64",
+    "build:binary:cli:macos-arm64": "bun build ./install.ts --compile --outfile dist/bin/longmem-cli-macos-arm64 --target bun-darwin-arm64",
+    "build:binary:cli:macos-x64": "bun build ./install.ts --compile --outfile dist/bin/longmem-cli-macos-x64 --target bun-darwin-x64",
+    "build:binaries": "mkdir -p dist/bin && bun run build:binary:daemon:linux-x64 && bun run build:binary:daemon:macos-arm64 && bun run build:binary:daemon:macos-x64 && bun run build:binary:mcp:linux-x64 && bun run build:binary:mcp:macos-arm64 && bun run build:binary:mcp:macos-x64 && bun run build:binary:hook:linux-x64 && bun run build:binary:hook:macos-arm64 && bun run build:binary:hook:macos-x64 && bun run build:binary:cli:linux-x64 && bun run build:binary:cli:macos-arm64 && bun run build:binary:cli:macos-x64",
     "dev": "bun run daemon/server.ts",
     "install-plugin": "bun run install.ts"
   },

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, copyFileSync, chmodSync, renameSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -132,6 +132,33 @@ export function loadConfig(): MemoryConfig {
   } catch {
     return DEFAULTS;
   }
+}
+
+// ─── Raw settings (no defaults merged) ──────────────────────────────────────
+
+const SETTINGS_PATH = join(homedir(), ".longmem", "settings.json");
+
+export function loadSettings(): Record<string, any> {
+  try {
+    if (existsSync(SETTINGS_PATH)) {
+      return JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+export function saveConfig(settings: Record<string, any>): void {
+  // Backup with timestamp
+  if (existsSync(SETTINGS_PATH)) {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.pre-config-${ts}.bak`);
+  }
+
+  // Atomic write: tmp + rename
+  const tmpPath = `${SETTINGS_PATH}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
+  renameSync(tmpPath, SETTINGS_PATH);
+  chmodSync(SETTINGS_PATH, 0o600);
 }
 
 export { PROVIDERS, DEFAULT_EXCLUDE_PATHS };

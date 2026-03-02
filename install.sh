@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LongMem — universal installer with auto-detection & permission flow
+# LongMem — universal installer
 # Usage: curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
 # Or:    bash install.sh --yes --no-service
 set -euo pipefail
@@ -8,8 +8,6 @@ REPO="clouitreee/LongMem"
 INSTALL_DIR="${HOME}/.longmem"
 BIN_DIR="${INSTALL_DIR}/bin"
 LOG_DIR="${INSTALL_DIR}/logs"
-SETTINGS_FILE="${INSTALL_DIR}/settings.json"
-DAEMON_PORT=38741
 
 # ─── Color helpers ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -19,19 +17,10 @@ err()  { echo -e "${RED}✗${RESET} $*" >&2; }
 die()  { err "$*"; exit 1; }
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
-FLAG_YES=false
-FLAG_DRY_RUN=false
-FLAG_NO_SERVICE=false
-INSTALL_OPENCODE=false
-INSTALL_CLI=true
+PASSTHROUGH_ARGS=("$@")
+
 for arg in "$@"; do
   case "$arg" in
-    --yes|-y)          FLAG_YES=true ;;
-    --dry-run)         FLAG_DRY_RUN=true ;;
-    --no-service)      FLAG_NO_SERVICE=true ;;
-    --opencode)        INSTALL_OPENCODE=true ;;
-    --all)             INSTALL_OPENCODE=true ;;
-    --opencode-only)   INSTALL_CLI=false; INSTALL_OPENCODE=true ;;
     --help|-h)
       echo "Usage: install.sh [OPTIONS]"
       echo ""
@@ -41,22 +30,10 @@ for arg in "$@"; do
       echo "  --no-service     Don't install systemd/launchd unit"
       echo "  --opencode       Also configure OpenCode"
       echo "  --all            Configure both Claude Code CLI and OpenCode"
-      echo "  --opencode-only  Configure OpenCode only"
+      echo "  --tui            Force interactive TUI wizard"
       exit 0 ;;
   esac
 done
-
-# ─── Interactive prompt ──────────────────────────────────────────────────────
-ask_yes_no() {
-  local question="$1" default="${2:-Y}"
-  if [[ "$FLAG_YES" == true ]]; then return 0; fi
-  local suffix="[Y/n]"
-  [[ "$default" == "N" ]] && suffix="[y/N]"
-  printf "  %s %s: " "$question" "$suffix"
-  read -r answer
-  answer="${answer:-$default}"
-  [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]
-}
 
 # ─── Detect OS / arch ────────────────────────────────────────────────────────
 detect_platform() {
@@ -76,18 +53,14 @@ detect_platform() {
         x86_64) echo "macos-x64" ;;
         *)      die "Unsupported macOS arch: $arch" ;;
       esac ;;
-    MINGW*|MSYS*|CYGWIN*|Windows_NT)
-      echo "windows-x64" ;;
     *) die "Unsupported OS: $os" ;;
   esac
 }
 
 PLATFORM="$(detect_platform)"
-IS_WINDOWS=false
-[[ "$PLATFORM" == windows-x64 ]] && IS_WINDOWS=true
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Phase 1: Detection
+# Phase 1: Banner
 # ═══════════════════════════════════════════════════════════════════════════════
 
 echo ""
@@ -96,885 +69,64 @@ echo -e "${BOLD}║       LongMem installer          ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════╝${RESET}"
 echo ""
 
-[[ "$FLAG_DRY_RUN" == true ]] && echo -e "${YELLOW}  (dry-run mode — no files will be modified)${RESET}" && echo ""
-
-echo "Scanning..."
-echo ""
-
-# ─── Detect Claude Code CLI ──────────────────────────────────────────────────
-CLAUDE_BINARY=""
-CLAUDE_CONFIG_DIR="${HOME}/.claude"
-CLAUDE_SETTINGS="${CLAUDE_CONFIG_DIR}/settings.json"
-CLAUDE_FOUND=false
-CLAUDE_PATCHED=false
-CLAUDE_VERSION=""
-
-detect_claude_code() {
-  if command -v claude &>/dev/null; then
-    CLAUDE_BINARY="$(command -v claude)"
-  elif [[ -x "${HOME}/.claude/bin/claude" ]]; then
-    CLAUDE_BINARY="${HOME}/.claude/bin/claude"
-  elif [[ -x "/usr/local/bin/claude" ]]; then
-    CLAUDE_BINARY="/usr/local/bin/claude"
-  fi
-
-  if [[ -n "$CLAUDE_BINARY" || -d "$CLAUDE_CONFIG_DIR" ]]; then
-    CLAUDE_FOUND=true
-  fi
-
-  # Check if already patched
-  if [[ -f "$CLAUDE_SETTINGS" ]] && command -v python3 &>/dev/null; then
-    CLAUDE_PATCHED=$(python3 -c "
-import json, sys
-try:
-    with open('${CLAUDE_SETTINGS}') as f:
-        s = json.load(f)
-    hooks = s.get('hooks', {})
-    has_hook = any('longmem' in json.dumps(v) for v in hooks.values() if isinstance(v, list))
-    has_mcp = 'longmem' in s.get('mcpServers', {})
-    print('true' if has_hook and has_mcp else 'false')
-except:
-    print('false')
-" 2>/dev/null || echo "false")
-  fi
-
-  # Version
-  if [[ -n "$CLAUDE_BINARY" ]]; then
-    CLAUDE_VERSION="$("$CLAUDE_BINARY" --version 2>/dev/null | head -1 || true)"
-  fi
-}
-
-# ─── Detect OpenCode ─────────────────────────────────────────────────────────
-OC_BINARY=""
-OC_CONFIG_DIR="${HOME}/.config/opencode"
-OC_CONFIG="${OC_CONFIG_DIR}/config.json"
-OC_FOUND=false
-OC_PATCHED=false
-OC_VERSION=""
-
-detect_opencode() {
-  if command -v opencode &>/dev/null; then
-    OC_BINARY="$(command -v opencode)"
-  fi
-  if [[ -n "$OC_BINARY" || -d "$OC_CONFIG_DIR" ]]; then
-    OC_FOUND=true
-  fi
-
-  # Try opencode.jsonc if config.json doesn't exist
-  if [[ ! -f "$OC_CONFIG" && -f "${OC_CONFIG_DIR}/opencode.jsonc" ]]; then
-    OC_CONFIG="${OC_CONFIG_DIR}/opencode.jsonc"
-  fi
-
-  if [[ -f "$OC_CONFIG" ]] && command -v python3 &>/dev/null; then
-    OC_PATCHED=$(python3 -c "
-import json
-try:
-    with open('${OC_CONFIG}') as f:
-        c = json.load(f)
-    print('true' if 'longmem' in c.get('mcp', {}) else 'false')
-except:
-    print('false')
-" 2>/dev/null || echo "false")
-  fi
-
-  if [[ -n "$OC_BINARY" ]]; then
-    OC_VERSION="$("$OC_BINARY" --version 2>/dev/null | head -1 || true)"
-  fi
-}
-
-# ─── Detect existing daemon ──────────────────────────────────────────────────
-DAEMON_INSTALLED=false
-DAEMON_RUNNING=false
-DAEMON_MODE=""
-SERVICE_INSTALLED=false
-EXISTING_INSTALL=false
-
-detect_daemon() {
-  if [[ -x "${BIN_DIR}/longmemd" ]]; then
-    DAEMON_INSTALLED=true; DAEMON_MODE="binary"
-  elif [[ -f "${INSTALL_DIR}/daemon.js" ]]; then
-    DAEMON_INSTALLED=true; DAEMON_MODE="bun"
-  fi
-
-  if curl -sf "http://127.0.0.1:${DAEMON_PORT}/health" &>/dev/null; then
-    DAEMON_RUNNING=true
-  fi
-
-  if [[ "$PLATFORM" == "linux-x64" && -f "${HOME}/.config/systemd/user/longmem.service" ]]; then
-    SERVICE_INSTALLED=true
-  elif [[ "$PLATFORM" == macos-* && -f "${HOME}/Library/LaunchAgents/com.longmem.daemon.plist" ]]; then
-    SERVICE_INSTALLED=true
-  fi
-
-  if [[ -d "$INSTALL_DIR" ]] && { [[ "$DAEMON_INSTALLED" == true ]] || [[ -f "$SETTINGS_FILE" ]]; }; then
-    EXISTING_INSTALL=true
-  fi
-}
-
-detect_claude_code
-detect_opencode
-detect_daemon
-
-# ─── Print detection summary ─────────────────────────────────────────────────
-echo "  Detected:"
-
-if [[ "$CLAUDE_FOUND" == true ]]; then
-  ver=""
-  [[ -n "$CLAUDE_VERSION" ]] && ver="v${CLAUDE_VERSION#v}"
-  path=""
-  [[ -n "$CLAUDE_BINARY" ]] && path="(${CLAUDE_BINARY})" || path="(config only)"
-  printf "    ${GREEN}✓${RESET} %-18s %-12s %s\n" "Claude Code CLI" "$ver" "$path"
-else
-  printf "    ${RED}✗${RESET} %-18s %s\n" "Claude Code CLI" "not found"
-fi
-
-if [[ "$OC_FOUND" == true ]]; then
-  ver=""
-  [[ -n "$OC_VERSION" ]] && ver="v${OC_VERSION#v}"
-  path=""
-  [[ -n "$OC_BINARY" ]] && path="(${OC_BINARY})" || path="(config only)"
-  printf "    ${GREEN}✓${RESET} %-18s %-12s %s\n" "OpenCode" "$ver" "$path"
-else
-  printf "    ${RED}✗${RESET} %-18s %s\n" "OpenCode" "not found"
-fi
-
-if [[ "$DAEMON_INSTALLED" == true ]]; then
-  status="stopped"
-  [[ "$DAEMON_RUNNING" == true ]] && status="running"
-  printf "    ${GREEN}✓${RESET} %-18s %s mode, %s\n" "Daemon" "$DAEMON_MODE" "$status"
-fi
-
-echo ""
-
-# Exit if no clients found
-if [[ "$CLAUDE_FOUND" == false && "$OC_FOUND" == false ]]; then
-  echo "No supported clients found."
-  echo "Install Claude Code CLI or OpenCode first, then re-run this installer."
-  exit 1
-fi
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# Phase 2: Handle update
+# Phase 2: Download binaries
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if [[ "$EXISTING_INSTALL" == true ]]; then
-  old_ver="unknown"
-  [[ -f "${INSTALL_DIR}/version" ]] && old_ver="$(cat "${INSTALL_DIR}/version")"
-  echo "  Existing install detected (${old_ver})"
+# Resolve latest release tag
+LATEST_TAG="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')"
+[[ -z "$LATEST_TAG" ]] && die "Could not determine latest release tag. Check your internet connection."
+echo "Version:  $LATEST_TAG"
 
-  if [[ "$DAEMON_RUNNING" == true ]]; then
-    echo "  Stopping daemon for update..."
-    curl -sf -X POST "http://127.0.0.1:${DAEMON_PORT}/shutdown" &>/dev/null || pkill -f longmemd 2>/dev/null || true
-    sleep 1
-  fi
-  echo ""
-fi
+BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Phase 3: Download & install files
-# ═══════════════════════════════════════════════════════════════════════════════
+mkdir -p "$BIN_DIR" "$LOG_DIR"
+chmod 700 "$INSTALL_DIR"
 
-if [[ "$FLAG_DRY_RUN" == true ]]; then
-  echo -e "  ${YELLOW}(dry-run)${RESET} Would download and install binaries to ${INSTALL_DIR}"
-  echo ""
-else
-  # Resolve latest release tag
-  LATEST_TAG="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')"
-  [[ -z "$LATEST_TAG" ]] && die "Could not determine latest release tag. Check your internet connection."
-  echo "Version:  $LATEST_TAG"
+# Download helper with checksum verification
+download() {
+  local url="$1" dest="$2" checksum_url="${1}.sha256"
+  echo "  Downloading $(basename "$dest")..."
+  curl -fsSL --progress-bar "$url" -o "$dest"
 
-  BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
+  local sha_cmd=""
+  if command -v sha256sum &>/dev/null; then sha_cmd="sha256sum";
+  elif command -v shasum &>/dev/null; then sha_cmd="shasum -a 256"; fi
 
-  DAEMON_BIN="longmemd-${PLATFORM}"
-  MCP_BIN="longmem-mcp-${PLATFORM}"
-  HOOK_BIN="longmem-hook-${PLATFORM}"
-  [[ "$IS_WINDOWS" == true ]] && DAEMON_BIN="${DAEMON_BIN}.exe" && MCP_BIN="${MCP_BIN}.exe" && HOOK_BIN="${HOOK_BIN}.exe"
-
-  mkdir -p "$BIN_DIR" "$LOG_DIR"
-  chmod 700 "$INSTALL_DIR"
-
-  # Download helper
-  download() {
-    local url="$1" dest="$2" checksum_url="${1}.sha256"
-    echo "  Downloading $(basename "$dest")..."
-    curl -fsSL --progress-bar "$url" -o "$dest"
-
-    local sha_cmd=""
-    if command -v sha256sum &>/dev/null; then sha_cmd="sha256sum";
-    elif command -v shasum &>/dev/null; then sha_cmd="shasum -a 256"; fi
-
-    if [[ -n "$sha_cmd" ]]; then
-      local expected actual
-      expected="$(curl -fsSL "${checksum_url}" | awk '{print $1}')"
+  if [[ -n "$sha_cmd" ]]; then
+    local expected actual
+    expected="$(curl -fsSL "${checksum_url}" 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -n "$expected" ]]; then
       actual="$($sha_cmd "$dest" | awk '{print $1}')"
       if [[ "$expected" != "$actual" ]]; then
         rm -f "$dest"
         die "Checksum mismatch for $(basename "$dest"). Download may be corrupted."
       fi
       echo "  Checksum OK"
-    else
-      warn "sha256sum/shasum not found — skipping checksum verification"
     fi
-  }
-
-  download "${BASE_URL}/${DAEMON_BIN}" "${BIN_DIR}/longmemd"
-  download "${BASE_URL}/${MCP_BIN}"    "${BIN_DIR}/longmem-mcp"
-  download "${BASE_URL}/${HOOK_BIN}"   "${BIN_DIR}/longmem-hook"
-  [[ "$IS_WINDOWS" == false ]] && chmod +x "${BIN_DIR}/longmemd" "${BIN_DIR}/longmem-mcp" "${BIN_DIR}/longmem-hook"
-  ok "Downloaded daemon, MCP server, and hook binary"
-
-  # Download OpenCode plugin (JS)
-  if [[ "$INSTALL_OPENCODE" == true ]]; then
-    download "${BASE_URL}/plugin.js" "${INSTALL_DIR}/plugin.js"
-    ok "Downloaded OpenCode plugin"
-  fi
-
-  # Default settings (never overwrite existing)
-  if [[ ! -f "$SETTINGS_FILE" ]]; then
-    cat > "$SETTINGS_FILE" <<'SETTINGS'
-{
-  "compression": {
-    "enabled": true,
-    "provider": "openrouter",
-    "model": "meta-llama/llama-3.1-8b-instruct",
-    "apiKey": "",
-    "maxConcurrent": 1,
-    "idleThresholdSeconds": 5,
-    "maxPerMinute": 10
-  },
-  "daemon": { "port": 38741 },
-  "privacy": { "redactSecrets": true }
-}
-SETTINGS
-    chmod 600 "$SETTINGS_FILE"
-    ok "Created ${SETTINGS_FILE}"
-    warn "Run 'bun install.ts' to configure compression interactively"
-  else
-    ok "${SETTINGS_FILE} preserved"
-  fi
-  echo ""
-fi
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Phase 4: Safe config merge (permission flow)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-HOOK="${BIN_DIR}/longmem-hook"
-MCP="${BIN_DIR}/longmem-mcp"
-
-# Safe JSON merge that PRESERVES existing hooks (critical fix)
-safe_merge_json() {
-  local file="$1" key="$2" value="$3"
-  if ! command -v python3 &>/dev/null; then
-    warn "python3 not found — cannot auto-patch ${file}. Patch manually."
-    return 1
-  fi
-
-  python3 - "$file" "$key" "$value" <<'PYEOF'
-import sys, json
-file, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
-
-try:
-    with open(file) as f:
-        data = json.load(f)
-except Exception:
-    data = {}
-
-parts = key.split(".")
-d = data
-for p in parts[:-1]:
-    d = d.setdefault(p, {})
-
-last_key = parts[-1]
-new_val = json.loads(value)
-
-# For hook arrays: merge instead of overwrite
-if isinstance(new_val, list) and key.startswith("hooks."):
-    existing = d.get(last_key, [])
-    if isinstance(existing, list):
-        # Remove old longmem entries, keep everything else
-        cleaned = [e for e in existing if 'longmem' not in json.dumps(e)]
-        # Append new longmem entries
-        if isinstance(new_val, list):
-            cleaned.extend(new_val)
-        else:
-            cleaned.append(new_val)
-        d[last_key] = cleaned
-    else:
-        d[last_key] = new_val
-else:
-    d[last_key] = new_val
-
-with open(file, "w") as f:
-    json.dump(data, f, indent=2)
-PYEOF
-}
-
-# Backup helper with timestamp
-backup_config() {
-  local file="$1"
-  if [[ -f "$file" ]]; then
-    local ts
-    ts="$(date +%Y%m%dT%H%M%S)"
-    cp "$file" "${file}.pre-longmem-${ts}.bak"
-    ok "Backed up ${file}"
   fi
 }
 
-# ─── Claude Code CLI coupling ────────────────────────────────────────────────
-if [[ "$INSTALL_CLI" == true && "$CLAUDE_FOUND" == true ]]; then
-  echo "── Claude Code CLI ──────────────────────────────────────"
-  echo "  Config: ${CLAUDE_SETTINGS}"
+# Download daemon, MCP, hook binaries
+download "${BASE_URL}/longmemd-${PLATFORM}" "${BIN_DIR}/longmemd"
+download "${BASE_URL}/longmem-mcp-${PLATFORM}" "${BIN_DIR}/longmem-mcp"
+download "${BASE_URL}/longmem-hook-${PLATFORM}" "${BIN_DIR}/longmem-hook"
+chmod +x "${BIN_DIR}/longmemd" "${BIN_DIR}/longmem-mcp" "${BIN_DIR}/longmem-hook"
 
-  if [[ "$CLAUDE_PATCHED" == true ]]; then
-    echo -e "  ${GREEN}✓${RESET} Already configured (skipping)"
-    echo ""
-  else
-    # Show preview
-    echo ""
-    echo "  Will add:"
-    echo "    hooks.PostToolUse      → ${HOOK} post-tool"
-    echo "    hooks.UserPromptSubmit → ${HOOK} prompt"
-    echo "    hooks.Stop             → ${HOOK} stop"
-    echo "    mcpServers.longmem     → ${MCP}"
-    echo ""
+# Download CLI binary (the TUI installer)
+download "${BASE_URL}/longmem-cli-${PLATFORM}" "${BIN_DIR}/longmem-cli"
+chmod +x "${BIN_DIR}/longmem-cli"
 
-    APPLY=false
-    if [[ "$FLAG_DRY_RUN" == true ]]; then
-      echo -e "  ${YELLOW}(dry-run)${RESET} Would write to ${CLAUDE_SETTINGS}"
-      APPLY=false
-    elif ask_yes_no "Apply changes?"; then
-      APPLY=true
-    else
-      echo "  Skipped."
-    fi
+ok "Downloaded all binaries"
+echo ""
 
-    if [[ "$APPLY" == true ]]; then
-      mkdir -p "$CLAUDE_CONFIG_DIR"
-      [[ ! -f "$CLAUDE_SETTINGS" ]] && echo '{}' > "$CLAUDE_SETTINGS"
-      backup_config "$CLAUDE_SETTINGS"
-
-      safe_merge_json "$CLAUDE_SETTINGS" "hooks.PostToolUse" \
-        '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' post-tool"}]}]'
-      safe_merge_json "$CLAUDE_SETTINGS" "hooks.UserPromptSubmit" \
-        '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' prompt"}]}]'
-      safe_merge_json "$CLAUDE_SETTINGS" "hooks.Stop" \
-        '[{"matcher":"","hooks":[{"type":"command","command":"'"${HOOK}"' stop"}]}]'
-
-      safe_merge_json "$CLAUDE_SETTINGS" "mcpServers.longmem" \
-        '{"command":"'"${MCP}"'","args":[]}'
-
-      ok "Updated ${CLAUDE_SETTINGS}"
-    fi
-    echo ""
-  fi
-fi
-
-# ─── OpenCode coupling ───────────────────────────────────────────────────────
-if [[ "$INSTALL_OPENCODE" == true && "$OC_FOUND" == true ]]; then
-  echo "── OpenCode ─────────────────────────────────────────────"
-  echo "  Config: ${OC_CONFIG}"
-
-  if [[ "$OC_PATCHED" == true ]]; then
-    echo -e "  ${GREEN}✓${RESET} Already configured (skipping)"
-    echo ""
-  else
-    echo ""
-    echo "  Will add:"
-    echo "    mcp.longmem            → ${MCP}"
-    echo "    plugin                 → longmem plugin"
-    echo "    instructions           → memory-instructions.md"
-    echo ""
-
-    APPLY=false
-    if [[ "$FLAG_DRY_RUN" == true ]]; then
-      echo -e "  ${YELLOW}(dry-run)${RESET} Would write to ${OC_CONFIG}"
-      APPLY=false
-    elif ask_yes_no "Apply changes?"; then
-      APPLY=true
-    else
-      echo "  Skipped."
-    fi
-
-    if [[ "$APPLY" == true ]]; then
-      INSTRUCTIONS_DIR="${HOME}/.opencode"
-      INSTRUCTIONS="${INSTRUCTIONS_DIR}/memory-instructions.md"
-      mkdir -p "$OC_CONFIG_DIR" "$INSTRUCTIONS_DIR"
-      [[ ! -f "$OC_CONFIG" ]] && echo '{}' > "$OC_CONFIG"
-      backup_config "$OC_CONFIG"
-
-      # Write instructions file
-      cat > "$INSTRUCTIONS" <<'INSTRUCTIONS_EOF'
-# Persistent Memory Policy (Required)
-
-## Before you answer (mandatory)
-1. Call `mem_search` with 3–7 keywords from the user request
-2. If results look relevant, call `mem_get` or `mem_timeline` for full details
-3. Only then respond or execute further tools
-
-## After significant work
-- The daemon captures tool calls automatically — no action needed
-
-## Security
-- Never store or repeat secrets (API keys, passwords, tokens, .env values)
-- Wrap any private content in `<private>...</private>` — it will be redacted
-INSTRUCTIONS_EOF
-      ok "Wrote ${INSTRUCTIONS}"
-
-      if command -v python3 &>/dev/null; then
-        python3 - "$OC_CONFIG" "$INSTRUCTIONS" "${INSTALL_DIR}/plugin.js" "${MCP}" <<'PYEOF'
-import sys, json
-cfg_file, instructions, plugin, mcp_bin = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-try:
-    with open(cfg_file) as f:
-        cfg = json.load(f)
-except Exception:
-    cfg = {}
-
-# instructions array
-if not isinstance(cfg.get("instructions"), list):
-    cfg["instructions"] = []
-if instructions not in cfg["instructions"]:
-    cfg["instructions"].append(instructions)
-
-# plugin array
-if not isinstance(cfg.get("plugin"), list):
-    cfg["plugin"] = []
-if plugin not in cfg["plugin"]:
-    cfg["plugin"].append(plugin)
-
-# mcp server
-cfg.setdefault("mcp", {})["longmem"] = {"command": mcp_bin, "args": []}
-
-with open(cfg_file, "w") as f:
-    json.dump(cfg, f, indent=2)
-PYEOF
-        ok "Updated ${OC_CONFIG}"
-      else
-        warn "python3 not found — could not auto-patch ${OC_CONFIG}. Add manually:"
-        echo '  "mcp": { "longmem": { "command": "'"${MCP}"'", "args": [] } }'
-      fi
-    fi
-    echo ""
-  fi
-fi
+# Write version file
+echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Phase 5: System service
+# Phase 3: Delegate to CLI binary (TUI or headless)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if [[ "$FLAG_NO_SERVICE" == false && "$FLAG_DRY_RUN" == false ]]; then
-  install_systemd_unit() {
-    local exec_path="$1"
-    local unit_dir="${HOME}/.config/systemd/user"
-    local unit_file="${unit_dir}/longmem.service"
-    mkdir -p "$unit_dir"
-
-    cat > "$unit_file" <<UNIT
-[Unit]
-Description=LongMem memory daemon
-
-[Service]
-Type=simple
-ExecStart=${exec_path}
-Restart=on-failure
-RestartSec=5
-Environment=HOME=${HOME}
-
-[Install]
-WantedBy=default.target
-UNIT
-
-    systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable longmem.service 2>/dev/null || true
-    systemctl --user start longmem.service 2>/dev/null || true
-    ok "Installed systemd user service at ${unit_file}"
-  }
-
-  install_launchd_plist() {
-    local exec_path="$1"
-    local agents_dir="${HOME}/Library/LaunchAgents"
-    local plist_file="${agents_dir}/com.longmem.daemon.plist"
-    mkdir -p "$agents_dir"
-
-    # Unload existing
-    [[ -f "$plist_file" ]] && launchctl unload "$plist_file" 2>/dev/null || true
-
-    cat > "$plist_file" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.longmem.daemon</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${exec_path}</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>StandardOutPath</key>
-  <string>${LOG_DIR}/daemon.log</string>
-  <key>StandardErrorPath</key>
-  <string>${LOG_DIR}/daemon.err</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key>
-    <string>${HOME}</string>
-  </dict>
-</dict>
-</plist>
-PLIST
-
-    launchctl load "$plist_file" 2>/dev/null || true
-    ok "Installed launchd plist at ${plist_file}"
-  }
-
-  DAEMON_EXEC="${BIN_DIR}/longmemd"
-  if [[ -x "$DAEMON_EXEC" ]]; then
-    SHOULD_INSTALL=false
-
-    if [[ "$SERVICE_INSTALLED" == true ]]; then
-      SHOULD_INSTALL=true  # Re-install to update paths
-    elif ask_yes_no "Install system service for daemon auto-start on login?"; then
-      SHOULD_INSTALL=true
-    fi
-
-    if [[ "$SHOULD_INSTALL" == true ]]; then
-      case "$PLATFORM" in
-        linux-x64)    install_systemd_unit "$DAEMON_EXEC" ;;
-        macos-arm64)  install_launchd_plist "$DAEMON_EXEC" ;;
-        macos-x64)    install_launchd_plist "$DAEMON_EXEC" ;;
-        *) warn "Service install not supported on $PLATFORM" ;;
-      esac
-    fi
-  else
-    warn "Daemon binary not found at ${DAEMON_EXEC} — skipping service install"
-  fi
-  echo ""
-fi
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Phase 6: Write uninstall script
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if [[ "$FLAG_DRY_RUN" == false ]]; then
-  cat > "${INSTALL_DIR}/uninstall.sh" <<'UNINSTALL'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "Removing LongMem..."
-
-# Stop daemon
-pkill -f longmemd 2>/dev/null || true
-
-# Remove systemd unit
-if [[ -f "${HOME}/.config/systemd/user/longmem.service" ]]; then
-  systemctl --user stop longmem.service 2>/dev/null || true
-  systemctl --user disable longmem.service 2>/dev/null || true
-  rm -f "${HOME}/.config/systemd/user/longmem.service"
-  systemctl --user daemon-reload 2>/dev/null || true
-  echo "Removed systemd service"
-fi
-
-# Remove launchd plist
-PLIST="${HOME}/Library/LaunchAgents/com.longmem.daemon.plist"
-if [[ -f "$PLIST" ]]; then
-  launchctl unload "$PLIST" 2>/dev/null || true
-  rm -f "$PLIST"
-  echo "Removed launchd plist"
-fi
-
-# Restore config backups
-for bak in "${HOME}/.claude/settings.json.pre-longmem-"*.bak "${HOME}/.config/opencode/config.json.pre-longmem-"*.bak; do
-  if [[ -f "$bak" ]]; then
-    target="${bak%.pre-longmem-*.bak}"
-    echo "Found backup: $bak"
-    echo "  Restore to ${target}? [y/N]"
-    read -r ans
-    if [[ "${ans,,}" == "y" ]]; then
-      cp "$bak" "$target"
-      echo "  Restored."
-    fi
-  fi
-done
-
-# Remove install dir
-rm -rf "${HOME}/.longmem"
-echo "LongMem removed. Memory DB deleted — this cannot be undone."
-UNINSTALL
-  chmod +x "${INSTALL_DIR}/uninstall.sh"
-  ok "Created ${INSTALL_DIR}/uninstall.sh"
-fi
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Phase 7: Start daemon + verify
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if [[ "$FLAG_DRY_RUN" == false ]]; then
-  echo ""
-  echo "── Starting daemon ──────────────────────────────────────"
-
-  if curl -sf "http://127.0.0.1:${DAEMON_PORT}/health" &>/dev/null; then
-    ok "Daemon already running"
-  else
-    "${BIN_DIR}/longmemd" &
-    DAEMON_PID=$!
-    disown $DAEMON_PID 2>/dev/null || true
-    sleep 2
-  fi
-
-  # Verification
-  echo ""
-  echo "── Verification ─────────────────────────────────────────"
-  echo ""
-
-  # Daemon health
-  if curl -sf "http://127.0.0.1:${DAEMON_PORT}/health" &>/dev/null; then
-    UPTIME=$(curl -sf "http://127.0.0.1:${DAEMON_PORT}/health" 2>/dev/null | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('uptime',0)))" 2>/dev/null || echo "?")
-    printf "  ${GREEN}✓${RESET} %-18s port %s, uptime %ss\n" "Daemon health" "$DAEMON_PORT" "$UPTIME"
-  else
-    printf "  ${RED}✗${RESET} %-18s not responding on port %s\n" "Daemon health" "$DAEMON_PORT"
-  fi
-
-  # Hook binary
-  if [[ -x "${BIN_DIR}/longmem-hook" ]]; then
-    if echo '{}' | "${BIN_DIR}/longmem-hook" post-tool &>/dev/null; then
-      printf "  ${GREEN}✓${RESET} %-18s exits 0\n" "Hook binary"
-    else
-      printf "  ${YELLOW}⚠${RESET}  %-18s exits non-zero (may be normal without data)\n" "Hook binary"
-    fi
-  else
-    printf "  ${RED}✗${RESET} %-18s not found\n" "Hook binary"
-  fi
-
-  # MCP server existence
-  if [[ -x "${BIN_DIR}/longmem-mcp" ]]; then
-    printf "  ${GREEN}✓${RESET} %-18s binary present\n" "MCP server"
-  else
-    printf "  ${RED}✗${RESET} %-18s not found\n" "MCP server"
-  fi
-
-  # Config paths
-  ALL_PATHS_OK=true
-  for p in "$INSTALL_DIR" "$SETTINGS_FILE" "$LOG_DIR"; do
-    [[ ! -e "$p" ]] && ALL_PATHS_OK=false
-  done
-  if [[ "$ALL_PATHS_OK" == true ]]; then
-    printf "  ${GREEN}✓${RESET} %-18s all resolve\n" "Config paths"
-  else
-    printf "  ${RED}✗${RESET} %-18s some missing\n" "Config paths"
-  fi
-
-  echo ""
-  echo -e "${BOLD}══ LongMem is ready! ════════════════════════════════════${RESET}"
-  echo ""
-  echo "  Changes take effect in your next Claude Code session."
-  echo ""
-
-  # Write version file
-  echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Phase 8: Ecosystem scan
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  if command -v python3 &>/dev/null; then
-    ECOSYSTEM_FILES=$(python3 - "${HOME}" <<'PYEOF'
-import sys, os, json, hashlib
-
-home = sys.argv[1]
-max_size = 50 * 1024  # 50KB
-results = []
-
-def safe_read(path, source):
-    try:
-        if not os.path.isfile(path):
-            return
-        size = os.path.getsize(path)
-        if size == 0 or size > max_size:
-            return
-        with open(path, 'r') as f:
-            content = f.read()
-        h = hashlib.sha256(content.encode()).hexdigest()[:16]
-        results.append({"path": path, "size": size, "hash": h, "source": source, "content": content})
-    except:
-        pass
-
-# 1. Global CLAUDE.md
-safe_read(os.path.join(home, ".claude", "CLAUDE.md"), "claude-global")
-
-# 2. Project memory files
-projects_dir = os.path.join(home, ".claude", "projects")
-if os.path.isdir(projects_dir):
-    for proj in os.listdir(projects_dir):
-        mem_dir = os.path.join(projects_dir, proj, "memory")
-        if os.path.isdir(mem_dir):
-            for f in os.listdir(mem_dir):
-                if f.endswith(".md"):
-                    safe_read(os.path.join(mem_dir, f), "claude-memory")
-
-# 3. Skills
-skills_dir = os.path.join(home, ".claude", "skills")
-if os.path.isdir(skills_dir):
-    for f in os.listdir(skills_dir):
-        if f.endswith(".md"):
-            safe_read(os.path.join(skills_dir, f), "claude-skill")
-
-# 4. Project CLAUDE.md (depth 3)
-skip = {"node_modules",".git",".cache",".local",".bun",".npm",".longmem",
-        ".nvm",".cargo",".rustup","dist","build",".vscode",".cursor","Library",".Trash"}
-def walk(d, depth):
-    if depth > 3:
-        return
-    try:
-        for entry in os.scandir(d):
-            if entry.name in skip:
-                continue
-            if entry.name.startswith(".") and depth == 0 and entry.name != ".claude":
-                continue
-            if entry.is_file() and entry.name == "CLAUDE.md":
-                safe_read(entry.path, "claude-project")
-            elif entry.is_dir(follow_symlinks=False) and depth < 3:
-                walk(entry.path, depth + 1)
-    except:
-        pass
-walk(home, 0)
-
-# 5. OpenCode instructions
-for cfg_name in ["config.json", "opencode.jsonc"]:
-    cfg_path = os.path.join(home, ".config", "opencode", cfg_name)
-    if os.path.isfile(cfg_path):
-        try:
-            with open(cfg_path) as f:
-                cfg = json.load(f)
-            for instr in cfg.get("instructions", []):
-                if isinstance(instr, str) and instr.endswith(".md"):
-                    safe_read(instr, "opencode-instructions")
-        except:
-            pass
-        break
-
-print(json.dumps(results))
-PYEOF
-)
-
-    FILE_COUNT=$(echo "$ECOSYSTEM_FILES" | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-
-    if [[ "$FILE_COUNT" -gt 0 ]]; then
-      echo ""
-      echo "── Ecosystem Scan ───────────────────────────────────────"
-      echo ""
-      echo "  Found:"
-
-      echo "$ECOSYSTEM_FILES" | python3 -c "
-import sys, json
-files = json.load(sys.stdin)
-for f in files:
-    size_kb = f['size'] / 1024
-    print(f'    \033[32m✓\033[0m {f[\"path\"]} \033[2m({size_kb:.1f}KB)\033[0m')
-"
-      echo ""
-
-      SHOULD_INGEST=false
-      if ask_yes_no "Index these into LongMem memory?"; then
-        SHOULD_INGEST=true
-      fi
-
-      if [[ "$SHOULD_INGEST" == true ]]; then
-        INGEST_RESULT=$(echo "$ECOSYSTEM_FILES" | python3 -c "
-import sys, json, urllib.request
-files = json.load(sys.stdin)
-payload = json.dumps({'files': files}).encode()
-req = urllib.request.Request(
-    'http://127.0.0.1:38741/ecosystem/ingest',
-    data=payload,
-    headers={'Content-Type': 'application/json'},
-    method='POST'
-)
-try:
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        result = json.loads(resp.read())
-        print(f'ingested={result.get(\"ingested\",0)} skipped={result.get(\"skipped\",0)}')
-except Exception as e:
-    print(f'error={e}')
-" 2>/dev/null || echo "error=unknown")
-
-        if [[ "$INGEST_RESULT" == error=* ]]; then
-          warn "Could not reach daemon for ingest — memory will build up naturally"
-        else
-          INGESTED=$(echo "$INGEST_RESULT" | grep -oP 'ingested=\K[0-9]+' || echo "0")
-          SKIPPED_I=$(echo "$INGEST_RESULT" | grep -oP 'skipped=\K[0-9]+' || echo "0")
-          ok "Indexed ${INGESTED} file(s) into memory (${SKIPPED_I} unchanged)"
-
-          # Offer cleanup — remove memory/CLAUDE.md files now in LongMem
-          REMOVABLE=$(echo "$ECOSYSTEM_FILES" | python3 -c "
-import sys, json
-files = json.load(sys.stdin)
-removable = [f['path'] for f in files if f['source'] in ('claude-memory', 'claude-global')]
-for p in removable:
-    print(p)
-" 2>/dev/null || true)
-
-          if [[ -n "$REMOVABLE" ]]; then
-            echo ""
-            echo "── Cleanup ──────────────────────────────────────────────"
-            echo ""
-            echo "  LongMem will manage your memory from now on."
-            echo ""
-            echo "  These files are now indexed and can be removed:"
-            while IFS= read -r rpath; do
-              [[ -n "$rpath" ]] && echo "    ${rpath}"
-            done <<< "$REMOVABLE"
-            echo ""
-
-            # Default NO — destructive, --yes does NOT auto-remove
-            if ask_yes_no "Remove them?" "N"; then
-              REMOVED=0
-              while IFS= read -r rpath; do
-                if [[ -n "$rpath" && -f "$rpath" ]]; then
-                  rm -f "$rpath" && REMOVED=$((REMOVED + 1))
-                fi
-              done <<< "$REMOVABLE"
-              ok "Removed ${REMOVED} file(s)"
-            else
-              echo "  Kept original files."
-            fi
-          fi
-        fi
-      else
-        echo "  Skipped ecosystem indexing."
-      fi
-      echo ""
-    fi
-  fi
-
-else
-  echo ""
-  echo -e "${YELLOW}(dry-run complete — no changes were made)${RESET}"
-  echo ""
-fi
-
-# ─── Final notes ─────────────────────────────────────────────────────────────
-if [[ "$FLAG_DRY_RUN" == false ]]; then
-  if grep -q '"apiKey": ""' "$SETTINGS_FILE" 2>/dev/null; then
-    echo "To configure compression, run the installer with Bun:"
-    echo "  cd ~/longmem && bun install.ts"
-    echo "  (compression works without a key — observations are stored raw)"
-    echo ""
-  fi
-
-  echo "══ LongMem is ready! ═══════════════════════════════════"
-  echo ""
-  echo "  MCP tools available to the LLM:"
-  echo "    mem_search   — search past sessions"
-  echo "    mem_timeline — chronological context"
-  echo "    mem_get      — full observation details"
-  echo ""
-  echo "  Changes take effect in your next Claude Code session."
-  echo ""
-fi
+echo "Running setup..."
+echo ""
+exec "${BIN_DIR}/longmem-cli" "${PASSTHROUGH_ARGS[@]}"

@@ -1,25 +1,25 @@
 #!/usr/bin/env bun
 /**
- * LongMem — unified installer with auto-detection & permission flow.
+ * LongMem — unified installer with auto-detection & TUI setup wizard.
  *
  * Usage:
- *   bun install.ts              # Detect & configure all found clients
- *   bun install.ts --yes        # Skip all prompts (answer Y)
+ *   bun install.ts              # Full TUI setup wizard
+ *   bun install.ts --yes        # Headless: no prompts
  *   bun install.ts --dry-run    # Preview without modifying anything
  *   bun install.ts --no-service # Don't install systemd/launchd unit
  *   bun install.ts --opencode   # Also look for OpenCode
  *   bun install.ts --all        # Same as --opencode
+ *   bun install.ts --tui        # Force TUI even for re-configuration
  */
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { createInterface } from "readline";
 import { detectEnvironment, printDetectionSummary } from "./shared/detect.ts";
 import { runCoupleFlow } from "./shared/couple.ts";
 import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
 import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
-import { runTuiConfig } from "./shared/tui-config.ts";
+import { runFullTui } from "./shared/tui.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
@@ -31,6 +31,7 @@ interface Flags {
   dryRun: boolean;
   noService: boolean;
   opencode: boolean;
+  tui: boolean;
 }
 
 function parseArgs(argv: string[]): Flags {
@@ -39,6 +40,7 @@ function parseArgs(argv: string[]): Flags {
     dryRun: argv.includes("--dry-run"),
     noService: argv.includes("--no-service"),
     opencode: argv.includes("--opencode") || argv.includes("--all"),
+    tui: argv.includes("--tui"),
   };
 }
 
@@ -49,34 +51,15 @@ const YELLOW = "\x1b[33m";
 const BOLD = "\x1b[1m";
 const RESET = "\x1b[0m";
 
-// ─── Persistent Readline ────────────────────────────────────────────────────
-// Single readline for the entire installer — fixes stdin corruption bug
-// where creating/destroying multiple readline interfaces on process.stdin
-// causes the 3rd+ instance to get an immediate 'close' event in Bun.
-
-const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
-
-function askYesNo(question: string, defaultYes: boolean): Promise<boolean> {
-  if (flags.yes) return Promise.resolve(defaultYes);
-  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
-  return new Promise((resolve) => {
-    rl.question(`  ${question} ${suffix}: `, (answer: string) => {
-      const a = answer.trim().toLowerCase();
-      if (a === "") return resolve(defaultYes);
-      resolve(a === "y" || a === "yes");
-    });
-  });
-}
-
 // ─── Banner ─────────────────────────────────────────────────────────────────
 
-console.log(`${BOLD}╔══════════════════════════════════╗${RESET}`);
-console.log(`${BOLD}║       LongMem installer          ║${RESET}`);
-console.log(`${BOLD}╚══════════════════════════════════╝${RESET}`);
+console.log(`${BOLD}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${RESET}`);
+console.log(`${BOLD}\u2551       LongMem installer          \u2551${RESET}`);
+console.log(`${BOLD}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${RESET}`);
 console.log("");
 
 if (flags.dryRun) {
-  console.log(`${YELLOW}  (dry-run mode — no files will be modified)${RESET}\n`);
+  console.log(`${YELLOW}  (dry-run mode \u2014 no files will be modified)${RESET}\n`);
 }
 
 // ─── 1. Detect Environment ──────────────────────────────────────────────────
@@ -88,7 +71,6 @@ printDetectionSummary(detection);
 if (detection.clients.length === 0) {
   console.log("No supported clients found.");
   console.log("Install Claude Code CLI or OpenCode first, then re-run this installer.");
-  rl.close();
   process.exit(1);
 }
 
@@ -107,7 +89,6 @@ if (detection.existingInstall) {
         signal: AbortSignal.timeout(2000),
       });
     } catch {
-      // Try pkill as fallback
       try {
         Bun.spawnSync(["pkill", "-f", "longmemd"]);
       } catch {}
@@ -120,7 +101,6 @@ if (detection.existingInstall) {
 // ─── 3. Install Files to ~/.longmem/ ────────────────────────────────────────
 
 if (!flags.dryRun) {
-  // Create dirs
   mkdirSync(join(MEMORY_DIR, "hooks"), { recursive: true });
   mkdirSync(join(MEMORY_DIR, "logs"), { recursive: true });
   mkdirSync(join(MEMORY_DIR, "bin"), { recursive: true });
@@ -137,10 +117,7 @@ if (!flags.dryRun) {
 
   let jsCount = 0;
   for (const [src, dst] of jsFiles) {
-    if (existsSync(src)) {
-      copyFileSync(src, dst);
-      jsCount++;
-    }
+    if (existsSync(src)) { copyFileSync(src, dst); jsCount++; }
   }
 
   // Copy compiled binaries if they exist
@@ -152,22 +129,13 @@ if (!flags.dryRun) {
 
   let binCount = 0;
   for (const [src, dst] of binFiles) {
-    if (existsSync(src)) {
-      copyFileSync(src, dst);
-      chmodSync(dst, 0o755);
-      binCount++;
-    }
+    if (existsSync(src)) { copyFileSync(src, dst); chmodSync(dst, 0o755); binCount++; }
   }
 
-  if (binCount > 0) {
-    console.log(`${GREEN}✓${RESET} Copied ${binCount} binaries`);
-  }
-  if (jsCount > 0) {
-    console.log(`${GREEN}✓${RESET} Copied ${jsCount} JS modules`);
-  }
+  if (binCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${binCount} binaries`);
+  if (jsCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${jsCount} JS modules`);
   if (binCount === 0 && jsCount === 0) {
-    console.error("✗ No built files found. Run: bun run build");
-    rl.close();
+    console.error("\u2717 No built files found. Run: bun run build");
     process.exit(1);
   }
 
@@ -189,240 +157,121 @@ if (!flags.dryRun) {
     };
     writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
     chmodSync(settingsPath, 0o600);
-    console.log(`${GREEN}✓${RESET} Created ${settingsPath}`);
+    console.log(`${GREEN}\u2713${RESET} Created ${settingsPath}`);
   } else {
-    console.log(`${GREEN}✓${RESET} ${settingsPath} preserved`);
+    console.log(`${GREEN}\u2713${RESET} ${settingsPath} preserved`);
   }
 
   console.log("");
 }
 
-// ─── 4. Interactive Permission Flow ─────────────────────────────────────────
+// ─── 4. Branch: TUI or Headless ─────────────────────────────────────────────
 
-const coupleResult = await runCoupleFlow(detection, {
-  yes: flags.yes,
-  dryRun: flags.dryRun,
-  skipDaemon: flags.noService,
-}, askYesNo);
-
-// ─── 5. Daemon Service ──────────────────────────────────────────────────────
-
-if (!flags.noService && !flags.dryRun) {
-  // Resolve daemon executable
-  const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
-  const scriptDaemon = join(MEMORY_DIR, "daemon.js");
-
-  let daemonExec: string;
-  if (existsSync(binaryDaemon)) {
-    daemonExec = binaryDaemon;
-  } else if (existsSync(scriptDaemon)) {
-    const bunPath = detection.bunPath || "bun";
-    daemonExec = `${bunPath} run ${scriptDaemon}`;
-  } else {
-    console.log(`${YELLOW}⚠${RESET}  No daemon executable found — skipping service install`);
-    daemonExec = "";
-  }
-
-  if (daemonExec) {
-    let shouldInstall = flags.yes;
-    if (!shouldInstall) {
-      if (detection.daemon.serviceInstalled) {
-        shouldInstall = await askYesNo("Update system service for daemon auto-start?", true);
-      } else {
-        shouldInstall = await askYesNo("Install system service for daemon auto-start on login?", true);
-      }
-    }
-
-    if (shouldInstall) {
-      const svcResult = await installService(daemonExec, detection.platform);
-      if (svcResult.installed) {
-        console.log(`${GREEN}✓${RESET} Installed ${svcResult.type} service at ${svcResult.path}`);
-      } else {
-        console.log(`${YELLOW}⚠${RESET}  Service install failed: ${svcResult.error}`);
-        console.log("  Daemon will still auto-start via hook fallback.");
-      }
-    }
-  }
-
-  console.log("");
+if (flags.yes || !process.stdin.isTTY) {
+  // Headless: couple + service + start + verify (no prompts)
+  await applyHeadless(detection, flags);
+} else {
+  // Interactive: full TUI
+  await runFullTui({ detection, noService: flags.noService, dryRun: flags.dryRun });
 }
 
-// ─── 6. Start Daemon + Verify ───────────────────────────────────────────────
+// ─── Headless Flow ──────────────────────────────────────────────────────────
 
-if (!flags.dryRun) {
-  // Start daemon if not already running
-  try {
-    const healthRes = await fetch("http://127.0.0.1:38741/health", {
-      signal: AbortSignal.timeout(1000),
-    });
-    if (healthRes.ok) {
-      console.log(`${GREEN}✓${RESET} Daemon already running`);
-    }
-  } catch {
-    // Try to start it
+async function applyHeadless(detection: any, flags: Flags): Promise<void> {
+  // Coupling
+  await runCoupleFlow(detection, {
+    yes: true,
+    dryRun: flags.dryRun,
+    skipDaemon: flags.noService,
+  });
+
+  // Service install
+  if (!flags.noService && !flags.dryRun) {
     const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
     const scriptDaemon = join(MEMORY_DIR, "daemon.js");
+    let daemonExec = "";
 
-    let cmd: string[];
     if (existsSync(binaryDaemon)) {
-      cmd = [binaryDaemon];
-    } else {
-      const bunPath = detection.bunPath || "bun";
-      cmd = [bunPath, "run", scriptDaemon];
+      daemonExec = binaryDaemon;
+    } else if (existsSync(scriptDaemon)) {
+      daemonExec = `${detection.bunPath || "bun"} run ${scriptDaemon}`;
     }
 
+    if (daemonExec) {
+      const svcResult = await installService(daemonExec, detection.platform);
+      if (svcResult.installed) {
+        console.log(`${GREEN}\u2713${RESET} Installed ${svcResult.type} service at ${svcResult.path}`);
+      } else {
+        console.log(`${YELLOW}\u26a0${RESET}  Service install failed: ${svcResult.error}`);
+      }
+    }
+    console.log("");
+  }
+
+  // Start daemon + verify
+  if (!flags.dryRun) {
     try {
-      const child = Bun.spawn(cmd, {
-        detached: true,
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-      child.unref();
-      await Bun.sleep(1500);
-    } catch {}
-  }
-
-  console.log("");
-  await verifyInstallation();
-
-  // Write version file
-  const versionFile = join(MEMORY_DIR, "version");
-  try {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
-    writeFileSync(versionFile, pkg.version || "1.0.0");
-  } catch {
-    writeFileSync(versionFile, "1.0.0");
-  }
-} else {
-  console.log(`\n${YELLOW}(dry-run complete — no changes were made)${RESET}\n`);
-}
-
-// ─── 7. Ecosystem Scan ──────────────────────────────────────────────────────
-
-if (!flags.dryRun) {
-  const ecoscan = scanEcosystem();
-
-  if (ecoscan.files.length > 0) {
-    printEcosystemSummary(ecoscan);
-
-    let shouldIngest = flags.yes;
-    if (!shouldIngest) {
-      shouldIngest = await askYesNo("Index these into LongMem memory?", true);
+      const healthRes = await fetch("http://127.0.0.1:38741/health", { signal: AbortSignal.timeout(1000) });
+      if (healthRes.ok) console.log(`${GREEN}\u2713${RESET} Daemon already running`);
+    } catch {
+      const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+      const scriptDaemon = join(MEMORY_DIR, "daemon.js");
+      let cmd: string[];
+      if (existsSync(binaryDaemon)) {
+        cmd = [binaryDaemon];
+      } else {
+        cmd = [detection.bunPath || "bun", "run", scriptDaemon];
+      }
+      try {
+        const child = Bun.spawn(cmd, { detached: true, stdio: ["ignore", "ignore", "ignore"] });
+        child.unref();
+        await Bun.sleep(1500);
+      } catch {}
     }
 
-    if (shouldIngest) {
-      try {
-        const payload = ecoscan.files.map(f => ({
-          path: f.path,
-          content: f.content,
-          hash: f.hash,
-          source: f.source,
-        }));
+    console.log("");
+    await verifyInstallation();
 
+    // Ecosystem scan
+    const ecoscan = scanEcosystem();
+    if (ecoscan.files.length > 0) {
+      printEcosystemSummary(ecoscan);
+      try {
+        const payload = ecoscan.files.map(f => ({ path: f.path, content: f.content, hash: f.hash, source: f.source }));
         const res = await fetch("http://127.0.0.1:38741/ecosystem/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ files: payload }),
           signal: AbortSignal.timeout(10000),
         });
-
         if (res.ok) {
           const result = await res.json() as any;
-          console.log(`  ${GREEN}✓${RESET} Indexed ${result.ingested} file(s) into memory (${result.skipped} unchanged)\n`);
-
-          // Offer cleanup — move source files to backup now that they're in LongMem
-          const removable = ecoscan.files.filter(f =>
-            f.source === "claude-memory" || f.source === "claude-global"
-          );
-
-          if (removable.length > 0) {
-            console.log("── Cleanup ──────────────────────────────────────────────\n");
-            console.log("  LongMem will manage your memory from now on.\n");
-            console.log("  These files are now indexed and can be removed:");
-            for (const f of removable) {
-              const sizeKB = (f.size / 1024).toFixed(1);
-              console.log(`    ${f.path} (${sizeKB}KB)`);
-            }
-            console.log("");
-
-            // Default NO — destructive action. --yes does NOT auto-remove.
-            const shouldRemove = await askYesNo("Remove them?", false);
-
-            if (shouldRemove) {
-              let removed = 0;
-              for (const f of removable) {
-                try {
-                  // Move to backup, not rm
-                  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-                  const bakPath = `${f.path}.longmem-backup-${ts}`;
-                  const { renameSync } = require("fs");
-                  renameSync(f.path, bakPath);
-                  removed++;
-                } catch {
-                  // Fallback: try unlinkSync if rename fails (cross-device)
-                  try { unlinkSync(f.path); removed++; } catch {}
-                }
-              }
-              console.log(`  ${GREEN}✓${RESET} Moved ${removed} file(s) to backup\n`);
-            } else {
-              console.log("  Kept original files.\n");
-            }
-          }
-        } else {
-          console.log(`  ${YELLOW}⚠${RESET}  Ingest failed (HTTP ${res.status}) — memory will build up naturally\n`);
+          console.log(`  ${GREEN}\u2713${RESET} Indexed ${result.ingested} file(s) into memory (${result.skipped} unchanged)\n`);
         }
-      } catch {
-        console.log(`  ${YELLOW}⚠${RESET}  Could not reach daemon for ingest — memory will build up naturally\n`);
-      }
-    } else {
-      console.log("  Skipped ecosystem indexing.\n");
+      } catch {}
     }
-  }
-} else if (flags.dryRun) {
-  const ecoscan = scanEcosystem();
-  if (ecoscan.files.length > 0) {
-    printEcosystemSummary(ecoscan);
-    console.log(`  ${YELLOW}(dry-run)${RESET} Would index ${ecoscan.files.length} file(s) into memory\n`);
-  }
-}
 
-// ─── 8. Compression Config (TUI) ────────────────────────────────────────────
-
-if (!flags.dryRun) {
-  const settingsPath = join(MEMORY_DIR, "settings.json");
-  let needsConfig = false;
-  try {
-    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    needsConfig = !settings.compression?.apiKey;
-  } catch {}
-
-  if (needsConfig && !flags.yes) {
-    const wantsConfigure = await askYesNo("Configure compression now?", true);
-
-    // Close our readline BEFORE clack takes over stdin
-    rl.close();
-
-    if (wantsConfigure) {
-      await runTuiConfig();
-    } else {
-      console.log(`\n  ${YELLOW}⚠${RESET}  No API key — compression disabled.`);
-      console.log(`  Run ${BOLD}bun install.ts${RESET} again to configure later.\n`);
+    // Write version file
+    const versionFile = join(MEMORY_DIR, "version");
+    try {
+      const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
+      writeFileSync(versionFile, pkg.version || "1.0.0");
+    } catch {
+      writeFileSync(versionFile, "1.0.0");
     }
   } else {
-    rl.close();
+    console.log(`\n${YELLOW}(dry-run complete \u2014 no changes were made)${RESET}\n`);
   }
-} else {
-  rl.close();
-}
 
-// ─── 9. Final Summary ───────────────────────────────────────────────────────
-
-if (!flags.dryRun) {
-  console.log(`${BOLD}══ LongMem is ready! ════════════════════════════════════${RESET}\n`);
-  console.log("  MCP tools available to the LLM:");
-  console.log("    mem_search   — search past sessions");
-  console.log("    mem_timeline — chronological context");
-  console.log("    mem_get      — full observation details");
-  console.log("");
-  console.log("  Changes take effect in your next Claude Code session.");
-  console.log("");
+  // Final summary
+  if (!flags.dryRun) {
+    console.log(`${BOLD}\u2550\u2550 LongMem is ready! \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550${RESET}\n`);
+    console.log("  MCP tools available to the LLM:");
+    console.log("    mem_search   \u2014 search past sessions");
+    console.log("    mem_timeline \u2014 chronological context");
+    console.log("    mem_get      \u2014 full observation details");
+    console.log("");
+    console.log("  Changes take effect in your next Claude Code session.");
+    console.log("");
+  }
 }

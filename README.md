@@ -169,9 +169,26 @@ The database is recreated automatically next session.
 - **`<private>` tag** — wrap anything sensitive: `<private>my password is xyz</private>` — it won't be saved at all.
 - **Your data, your disk.** Everything is in `~/.longmem/`. Delete it anytime.
 
-### Privacy modes
+### Settings
 
-LongMem has three privacy levels. The default (`safe`) works for most people:
+Run the setup wizard anytime to change privacy mode, auto-context, compression, and more:
+
+```bash
+~/.longmem/bin/longmem-cli --tui
+```
+
+Or from source:
+
+```bash
+bun install.ts --tui
+```
+
+<details>
+<summary>Advanced: edit settings.json directly</summary>
+
+All settings live in `~/.longmem/settings.json`. You can edit this file directly instead of using the wizard.
+
+**Privacy modes:**
 
 | Mode | What it does |
 |------|-------------|
@@ -179,11 +196,30 @@ LongMem has three privacy levels. The default (`safe`) works for most people:
 | **flexible** | Same as safe, plus you can add your own custom redaction patterns |
 | **none** | No redaction (only use this if you're self-hosting everything locally) |
 
-Change the mode in `~/.longmem/settings.json`:
-
 ```json
 { "privacy": { "mode": "safe" } }
 ```
+
+**Auto-context:**
+
+```json
+{ "autoContext": { "enabled": true, "maxEntries": 5, "maxTokens": 500 } }
+```
+
+**Compression:**
+
+```json
+{
+  "compression": {
+    "enabled": true,
+    "provider": "openrouter",
+    "model": "meta-llama/llama-3.1-8b-instruct",
+    "apiKey": "your-key-here"
+  }
+}
+```
+
+</details>
 
 ---
 
