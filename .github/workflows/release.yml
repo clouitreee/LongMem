@@ -31,7 +31,7 @@ jobs:
             mcp_out: longmem-mcp-macos-arm64
             hook_out: longmem-hook-macos-arm64
             cli_out: longmem-cli-macos-arm64
-          - os: macos-13
+          - os: macos-latest
             target: bun-darwin-x64
             daemon_out: longmemd-macos-x64
             mcp_out: longmem-mcp-macos-x64
@@ -68,7 +68,7 @@ jobs:
       - name: Build CLI binary
         run: bun build ./install.ts --compile --outfile dist/bin/${{ matrix.cli_out }} --target ${{ matrix.target }}
 
-      - name: Build OpenCode plugin (JS — runs via bun in hooks)
+      - name: Build OpenCode plugin (JS)
         if: matrix.target == 'bun-linux-x64'
         run: bun run build:opencode
 
@@ -88,18 +88,11 @@ jobs:
             (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() + "  $f" | Out-File "$f.sha256" -Encoding utf8
           }
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/bin/${{ matrix.daemon_out }}
-            dist/bin/${{ matrix.daemon_out }}.sha256
-            dist/bin/${{ matrix.mcp_out }}
-            dist/bin/${{ matrix.mcp_out }}.sha256
-            dist/bin/${{ matrix.hook_out }}
-            dist/bin/${{ matrix.hook_out }}.sha256
-            dist/bin/${{ matrix.cli_out }}
-            dist/bin/${{ matrix.cli_out }}.sha256
+          name: binaries-${{ matrix.target }}
+          path: dist/bin/
 
   plugin:
     runs-on: ubuntu-latest
@@ -110,16 +103,32 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run build:opencode
-      - name: Upload plugin.js
-        uses: softprops/action-gh-release@v2
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/plugin.js
+          name: plugin
+          path: dist/plugin.js
 
-  manifest:
+  release:
     needs: [build, plugin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          # Flatten all binaries + checksums into release-files/
+          find artifacts/binaries-* -type f | while read f; do
+            cp "$f" release-files/
+          done
+          # Copy plugin
+          cp artifacts/plugin/plugin.js release-files/
 
       - name: Generate manifest.json
         env:
@@ -127,7 +136,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
-          cat > manifest.json <<EOF
+          cat > release-files/manifest.json <<EOF
           {
             "version": "${TAG}",
             "binaries": {
@@ -164,9 +173,9 @@ jobs:
           }
           EOF
 
-      - name: Upload manifest and installer
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            manifest.json
+            release-files/*
             install.sh
