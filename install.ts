@@ -24,8 +24,10 @@ import { runFullTui } from "./shared/tui.ts";
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
 
-// When running as compiled binary from ~/.longmem/bin/, files are already in place
-const runningFromInstall = import.meta.dir.startsWith(MEMORY_DIR);
+// When running as compiled binary from ~/.longmem/bin/, dist/ won't exist
+// but the binaries are already in place (downloaded by install.sh)
+const hasDist = existsSync(DIST_DIR);
+const binariesInPlace = existsSync(join(MEMORY_DIR, "bin", "longmemd"));
 
 // ─── Parse Args ─────────────────────────────────────────────────────────────
 
@@ -56,7 +58,7 @@ const RESET = "\x1b[0m";
 
 // ─── Banner (skip if called from install.sh which already shows one) ────────
 
-if (!runningFromInstall) {
+if (hasDist) {
   console.log(`${BOLD}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${RESET}`);
   console.log(`${BOLD}\u2551       LongMem installer          \u2551${RESET}`);
   console.log(`${BOLD}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${RESET}`);
@@ -111,10 +113,10 @@ if (!flags.dryRun) {
   mkdirSync(join(MEMORY_DIR, "bin"), { recursive: true });
   chmodSync(MEMORY_DIR, 0o700);
 
-  if (runningFromInstall) {
-    // Running as compiled binary from ~/.longmem/bin/ — files already in place
+  if (!hasDist && binariesInPlace) {
+    // Running as compiled binary — files already downloaded by install.sh
     console.log(`${GREEN}\u2713${RESET} Binaries already installed`);
-  } else {
+  } else if (hasDist) {
     // Running from source — copy dist/ files to ~/.longmem/
     const jsFiles: [string, string][] = [
       [join(DIST_DIR, "daemon.js"), join(MEMORY_DIR, "daemon.js")],
@@ -146,6 +148,9 @@ if (!flags.dryRun) {
       console.error("\u2717 No built files found. Run: bun run build");
       process.exit(1);
     }
+  } else {
+    console.error("\u2717 No built files found and no binaries installed. Run: bun run build");
+    process.exit(1);
   }
 
   // Create settings.json with defaults (never overwrite existing)
