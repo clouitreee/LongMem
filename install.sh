@@ -129,9 +129,13 @@ echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
 
 echo "Running setup..."
 echo ""
-# When piped (curl | bash), stdin is consumed. Reopen from /dev/tty for TUI.
-if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
-  "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"} </dev/tty >/dev/tty 2>&1
+# When piped (curl | bash), stdin isn't a TTY — run headless and prompt for TUI after.
+if [[ ! -t 0 ]]; then
+  "${BIN_DIR}/longmem-cli" --yes ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+  echo ""
+  echo -e "${BOLD}To configure privacy, compression, and more:${RESET}"
+  echo "  ~/.longmem/bin/longmem-cli --tui"
+  echo ""
 else
   "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
 fi
