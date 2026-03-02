@@ -79,6 +79,19 @@ const TOOLS = [
       required: ["ids"],
     },
   },
+  {
+    name: "mem_export",
+    description: "Export memory to JSON or Markdown for backup, sharing, or analysis. Returns the exported data or a summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Filter by project name (optional — omit for all projects)" },
+        days: { type: "number", description: "Only include last N days (default: all, max: 365)" },
+        format: { type: "string", enum: ["json", "markdown"], description: "Export format (default: json)" },
+        include_raw: { type: "boolean", description: "Include raw tool_input/tool_output (default: false)" },
+      },
+    },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
@@ -158,6 +171,45 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         ].filter(Boolean).join("\n")).join("\n\n---\n\n");
       } catch {
         return "Observation retrieval failed.";
+      }
+    }
+
+    case "mem_export": {
+      const { project, days, format, include_raw } = args;
+      try {
+        const params = new URLSearchParams();
+        if (project) params.set("project", String(project));
+        if (days) params.set("days", String(days));
+        if (format) params.set("format", String(format));
+        if (include_raw) params.set("include_raw", "true");
+
+        const res = await fetch(`http://127.0.0.1:38741/export?${params}`, {
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (!res.ok) {
+          const err = await res.json() as any;
+          return `Export failed: ${err.error || "unknown error"}`;
+        }
+
+        if (format === "markdown") {
+          const text = await res.text();
+          return `Exported memory:\n\n${text.slice(0, 8000)}${text.length > 8000 ? "\n\n... (truncated)" : ""}`;
+        }
+
+        const data = await res.json() as any;
+        const summary = [
+          `**LongMem Export**`,
+          `Exported: ${data.exported_at}`,
+          `Sessions: ${data.sessions?.length || 0}`,
+          `Observations: ${data.observations?.length || 0}`,
+          `User observations: ${data.userObservations?.length || 0}`,
+          `Concepts: ${data.concepts?.length || 0}`,
+        ].join("\n");
+
+        return summary;
+      } catch {
+        return "Export failed — daemon may be unavailable.";
       }
     }
 

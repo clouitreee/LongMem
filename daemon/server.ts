@@ -270,6 +270,11 @@ try {
           return routes.handleTimeline(path.slice("/timeline/".length), url.searchParams);
         }
 
+        // Export
+        if (method === "GET" && path === "/export") {
+          return routes.handleExport(url.searchParams);
+        }
+
         return json({ error: "Not found" }, 404);
       } catch (error: any) {
         return json({ error: error?.message || "Internal error" }, 500);

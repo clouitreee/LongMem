@@ -2,7 +2,7 @@ import {
   createSession, getSessionDbId, markSessionCompleted,
   saveObservation, updateSessionPrompt, queueCompression,
   getFullObservation, getFullObservations, getStats,
-  saveUserObservation, getDB, getPromptCount,
+  saveUserObservation, getDB, getPromptCount, exportMemory,
 } from "./db.ts";
 import {
   searchObservations, searchSessions, searchUserObservations,
@@ -384,6 +384,60 @@ export function createRoutes(
 
     handleStats(): Response {
       return json(getStats());
+    },
+
+    async handleExport(params: URLSearchParams): Promise<Response> {
+      const project = params.get("project") || undefined;
+      const days = params.get("days") ? parseInt(params.get("days")!, 10) : undefined;
+      const format = (params.get("format") as "json" | "markdown") || "json";
+      const includeRaw = params.get("include_raw") === "true";
+
+      if (days && (isNaN(days) || days < 1 || days > 365)) {
+        return json({ error: "days must be between 1 and 365" }, 400);
+      }
+
+      const data = exportMemory({ project, days, format, includeRaw });
+
+      if (format === "markdown") {
+        const lines: string[] = [
+          `# LongMem Export`,
+          ``,
+          `**Exported:** ${data.exported_at}`,
+          `**Sessions:** ${data.sessions.length}`,
+          `**Observations:** ${data.observations.length}`,
+          ``,
+          `---`,
+          ``,
+        ];
+
+        for (const session of data.sessions as any[]) {
+          lines.push(`## Session: ${session.project || "default"}`);
+          lines.push(`**Date:** ${session.created_at?.slice(0, 10) || "unknown"}`);
+          if (session.first_user_prompt) {
+            lines.push(`**Prompt:** ${session.first_user_prompt}`);
+          }
+          lines.push(``);
+
+          const sessionObs = (data.observations as any[]).filter(o => o.session_id === session.id);
+          for (const obs of sessionObs) {
+            lines.push(`### ${obs.tool_name}`);
+            lines.push(`**Time:** ${obs.created_at || ""}`);
+            if (obs.compressed_summary) {
+              lines.push(`**Summary:** ${obs.compressed_summary}`);
+            }
+            if (obs.files_referenced) {
+              lines.push(`**Files:** ${obs.files_referenced}`);
+            }
+            lines.push(``);
+          }
+        }
+
+        return new Response(lines.join("\n"), {
+          headers: { "Content-Type": "text/markdown; charset=utf-8" },
+        });
+      }
+
+      return json(data);
     },
   };
 }

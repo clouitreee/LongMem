@@ -398,3 +398,71 @@ export function runGarbageCollection(maxAgeDays = 90): { observationsDeleted: nu
 
   return { observationsDeleted: obs.changes, sessionsDeleted: sessions.changes };
 }
+
+export interface ExportOptions {
+  project?: string;
+  days?: number;
+  format?: "json" | "markdown";
+  includeRaw?: boolean;
+}
+
+export interface ExportData {
+  exported_at: string;
+  version: string;
+  options: ExportOptions;
+  sessions: object[];
+  observations: object[];
+  userObservations: object[];
+  concepts: object[];
+}
+
+export function exportMemory(opts: ExportOptions = {}): ExportData {
+  const database = getDB();
+  const { project, days, includeRaw = false } = opts;
+
+  const cutoff = days
+    ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  const sessionWhere = [
+    project ? "project = ?" : null,
+    cutoff ? "created_at >= ?" : null,
+  ].filter(Boolean).join(" AND ");
+
+  const sessionParams = [
+    project,
+    cutoff,
+  ].filter(Boolean);
+
+  const sessions = database.prepare(
+    `SELECT * FROM sessions${sessionWhere ? ` WHERE ${sessionWhere}` : ""} ORDER BY created_at DESC`
+  ).all(...sessionParams) as object[];
+
+  const sessionIds = sessions.map((s: any) => s.id);
+  const obsWhere = sessionIds.length > 0
+    ? `session_id IN (${sessionIds.map(() => "?").join(",")})`
+    : "1=0";
+
+  let observations = database.prepare(
+    `SELECT id, session_id, tool_name, ${includeRaw ? "tool_input, tool_output," : ""} compressed_summary, observation_type, files_referenced, concepts, created_at FROM observations WHERE ${obsWhere}${cutoff ? " AND created_at >= ?" : ""} ORDER BY created_at DESC`
+  ).all(...sessionIds, ...(cutoff ? [cutoff] : [])) as object[];
+
+  const userObsWhere = cutoff ? "WHERE created_at >= ?" : "";
+  const userObservations = database.prepare(
+    `SELECT id, observation_type, content, metadata, created_at FROM user_observations ${userObsWhere} ORDER BY created_at DESC`
+  ).all(...(cutoff ? [cutoff] : [])) as object[];
+
+  const concepts = database.prepare(
+    "SELECT name, frequency, last_seen FROM concepts ORDER BY frequency DESC LIMIT 100"
+  ).all() as object[];
+
+  return {
+    exported_at: new Date().toISOString(),
+    version: "1.0.0",
+    options: opts,
+    sessions,
+    observations,
+    userObservations,
+    concepts,
+  };
+}
