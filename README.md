@@ -326,22 +326,9 @@ Your editor  ──▶  longmemd (local)  ──▶  ~/.longmem/memory.db
 
 All hooks exit cleanly — they never block your workflow.
 
-### Auto-context settings
+### Auto-context
 
-The session primer and topic-change injection are configurable in `~/.longmem/settings.json`:
-
-```json
-{
-  "autoContext": {
-    "enabled": true,
-    "maxEntries": 5,
-    "maxTokens": 500,
-    "timeoutMs": 300
-  }
-}
-```
-
-Set `"enabled": false` to disable auto-injection entirely.
+The session primer and topic-change injection can be toggled from the setup wizard (`--tui`). The wizard configures max entries, max tokens, and timeout. Disable auto-injection entirely by setting auto-context to off.
 
 ### Privacy architecture
 
@@ -352,18 +339,7 @@ LongMem uses 4 layers of defense to prevent secrets from leaking:
 3. **Egress gate** — re-sanitizes data before sending to compression LLM
 4. **Kill switch** — `containsHighRiskPattern()` quarantines PEM keys, JWTs, AWS keys, DB connection strings with passwords
 
-Custom redaction patterns (mode `flexible`):
-
-```json
-{
-  "privacy": {
-    "mode": "flexible",
-    "customPatterns": [
-      { "pattern": "MYTOKEN-[a-z]{10,}", "name": "internal-token" }
-    ]
-  }
-}
-```
+Privacy mode and custom redaction patterns are configured through the setup wizard (`--tui`). In `flexible` mode, the wizard prompts for comma-separated regex patterns.
 
 ### Contributing
 
