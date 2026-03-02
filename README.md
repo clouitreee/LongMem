@@ -2,7 +2,7 @@
 
 **Your AI coding assistant forgets everything between sessions. LongMem fixes that.**
 
-Every tool call, file edit, and prompt from [Claude Code](https://claude.ai/code) and [OpenCode](https://opencode.ai) is captured in a local database. Next session, your assistant remembers what you built, what broke, and how you fixed it.
+Every file edit, command, and conversation from [Claude Code](https://claude.ai/code) and [OpenCode](https://opencode.ai) is saved locally. Next session, your assistant remembers what you built, what broke, and how you fixed it.
 
 ```
 You: why was auth broken last week?
@@ -11,62 +11,65 @@ Claude: "You fixed a JWT expiry bug in src/auth.ts on Feb 28 —
          the check was comparing seconds against milliseconds."
 ```
 
-No cloud sync. No manual notes. Everything stays on your machine.
+No cloud. No manual notes. Everything stays on your machine.
 
 ---
 
-## Install (one command)
+## What you need
+
+- **Mac or Linux**
+- **Claude Code** or **OpenCode** installed (at least one)
+- That's it
+
+---
+
+## Install
+
+Paste this in your terminal:
 
 ```bash
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
 ```
 
-The installer auto-detects Claude Code / OpenCode, shows what it will change, asks permission, and verifies everything works:
+The installer does everything for you:
+
+1. Finds your tools (Claude Code, OpenCode)
+2. Shows what it will change and **asks permission**
+3. Sets up memory capture + search
+4. Verifies everything works
 
 ```
 ╔══════════════════════════════════╗
 ║       LongMem installer          ║
 ╚══════════════════════════════════╝
 
-Scanning...
-
   Detected:
     ✓ Claude Code CLI  v2.1.50
     ✓ OpenCode         v1.2.15
 
-── Claude Code CLI ──────────────────────────────────
-
-  Will add:
-    hooks.PostToolUse      → capture tool activity
-    hooks.UserPromptSubmit → index prompts + inject context
-    hooks.Stop             → finalize session
-    mcpServers.longmem     → memory search tools
-
   Apply changes? [Y/n]: y
   ✓ Done
 
-── Verification ─────────────────────────────────────
-
-  ✓ Daemon running     port 38741
-  ✓ Hooks working      exits 0
-  ✓ MCP tools          3 registered
-  ✓ Config valid       all paths resolve
+  ✓ Daemon running
+  ✓ Hooks working
+  ✓ Memory search ready
 
 ══ LongMem is ready! ════════════════════════════════
 ```
 
-That's it. Start a new Claude Code or OpenCode session and your assistant has memory.
+Start a new session — your assistant now has memory.
 
-### Install flags
+### Install options
 
-| Flag | Effect |
-|------|--------|
-| `--yes` / `-y` | Skip prompts, answer Y to everything |
-| `--dry-run` | Preview changes without modifying anything |
-| `--no-service` | Don't auto-start daemon on login |
-| `--all` | Configure both Claude Code and OpenCode |
+| Option | What it does |
+|--------|-------------|
+| `--yes` | Accept everything, no prompts |
+| `--dry-run` | See what would happen without changing anything |
+| `--all` | Set up both Claude Code and OpenCode |
 
-### Install from source (requires [Bun](https://bun.sh))
+### Install from source
+
+If you prefer to build it yourself (requires [Bun](https://bun.sh)):
 
 ```bash
 git clone https://github.com/clouitreee/LongMem.git && cd LongMem
@@ -76,229 +79,170 @@ bun run install.ts
 
 ---
 
-## How it works
+## Using it
 
-```
-┌─────────────────┐     POST /observe     ┌──────────────┐     SQLite FTS5
-│ Claude Code     │ ───────────────────▶   │  longmemd     │ ──▶ ~/.longmem/
-│ hooks + MCP     │                        │  127.0.0.1    │     memory.db
-│                 │ ◀─── mem_search ─────  │  :38741       │
-│ OpenCode        │ ◀─── mem_get ────────  │               │
-│ plugin + MCP    │ ◀─── mem_timeline ───  └───────┬───────┘
-└─────────────────┘                                │ idle
-                                                   ▼
-                                            LLM compression
-                                            (optional)
-```
+You don't need to do anything special. Just use Claude Code or OpenCode as you normally do.
 
-**What gets captured:** Every tool call (edits, reads, bash commands), every prompt you type, session start/end events.
+LongMem captures your activity in the background. When your assistant needs past context, it searches your memory automatically.
 
-**What the LLM gets:** Three MCP tools to search memory on demand, plus automatic context injection when you switch topics mid-session.
+### Ask about past work
 
-**What's optional:** AI compression (summarizes raw data for better search). Works fine without it — raw full-text search is always available.
-
----
-
-## Quick guide
-
-### Search memory from your assistant
-
-Your assistant already has the MCP tools. Just ask naturally:
+Just ask naturally — your assistant will search your memory:
 
 ```
 You: what did I change in the auth module last week?
 You: how did I fix the Docker build?
-You: what was that regex pattern I used for email validation?
+You: what was that regex I used for email validation?
 ```
 
-The assistant calls `mem_search` automatically, then `mem_get` for details if needed.
+### Improve search with compression (optional)
 
-### Check daemon status
+By default, LongMem searches your raw activity. If you add an API key, it also generates summaries that make search smarter.
+
+The installer asks about this at the end. You can skip it and add it later — everything works without it.
+
+Supported providers: **OpenRouter**, **OpenAI**, **Anthropic**, or a **local model** (Ollama).
+
+---
+
+## Update
+
+Re-run the same install command. It updates LongMem and keeps your memories:
 
 ```bash
-curl -s http://127.0.0.1:38741/health
-# {"status":"ok","pending":0,"sessions":0}
-
-curl -s http://127.0.0.1:38741/status
-# {"pid":12345,"port":38741,"uptime_seconds":3600,...}
-```
-
-### Configure compression (optional)
-
-The installer offers an interactive setup at the end. Or edit manually:
-
-**`~/.longmem/settings.json`**
-```json
-{
-  "compression": {
-    "enabled": true,
-    "provider": "openrouter",
-    "model": "meta-llama/llama-3.1-8b-instruct",
-    "apiKey": "your-key-here"
-  }
-}
-```
-
-Supported providers: `openrouter`, `openai`, `anthropic`, `local` (Ollama).
-
-Without an API key, search works on raw tool output. With one, you get AI-generated summaries that improve ranking.
-
-### Manage the daemon
-
-**Linux (systemd):**
-```bash
-systemctl --user status longmem
-systemctl --user restart longmem
-journalctl --user -u longmem
-```
-
-**macOS (launchd):**
-```bash
-launchctl list | grep longmem
-launchctl stop com.longmem.daemon
-launchctl start com.longmem.daemon
-```
-
-If no service is installed, hooks auto-start the daemon on demand.
-
-### Update
-
-Re-run the installer. It detects the existing install, updates binaries, and preserves your data:
-
-```bash
-curl -fsSL .../install.sh | bash -s -- --yes
-# or from source:
-git pull && bun run build && bun run install.ts --yes
+curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
 ```
 
 ---
 
 ## Uninstall
 
-Clean removal in one command:
-
 ```bash
 bun run uninstall.ts
 ```
 
-| Flag | Effect |
-|------|--------|
-| `--yes` | Skip prompts |
-| `--dry-run` | Preview without changing anything |
-| `--keep-data` | Keep `memory.db` (your memories survive) |
+| Option | What it does |
+|--------|-------------|
+| `--yes` | No prompts, just uninstall |
+| `--keep-data` | Remove LongMem but keep your memories (can reinstall later) |
+| `--dry-run` | See what would happen without changing anything |
 
 What the uninstaller does:
 
-1. Stops the daemon
-2. Removes the systemd / launchd service
-3. Restores your Claude Code and OpenCode configs (only removes LongMem entries — your other hooks stay)
-4. Moves `~/.longmem/` to `~/.longmem.backup-<timestamp>`
+1. Stops the memory service
+2. Restores your Claude Code / OpenCode config to how it was before (your other settings stay untouched)
+3. Moves LongMem to a backup folder — **nothing is deleted permanently**
 
-Nothing is deleted permanently. You can always recover from the backup.
+You can always recover from `~/.longmem.backup-*` if you change your mind.
 
-**Manual uninstall** (if you prefer):
-```bash
-# Stop daemon
-curl -s -X POST http://127.0.0.1:38741/shutdown
-systemctl --user disable --now longmem   # Linux
-# launchctl unload ~/Library/LaunchAgents/com.longmem.daemon.plist  # macOS
+### Erase memory only (keep LongMem running)
 
-# Move to backup
-mv ~/.longmem ~/.longmem.backup-$(date +%s)
-
-# Restore configs
-cp ~/.claude/settings.json.pre-longmem-*.bak ~/.claude/settings.json
-```
-
-**Erase memory only** (keep LongMem installed):
 ```bash
 rm ~/.longmem/memory.db
-# Daemon recreates it on next start
 ```
+
+The database is recreated automatically next session.
 
 ---
 
-## Privacy & security
+## Privacy
 
-- **100% local.** Daemon binds to `127.0.0.1` only. No telemetry, no cloud, no phoning home.
-- **Automatic secret redaction** — API keys, tokens, passwords are stripped before storage.
-- **`<private>` tag** — wrap text you never want stored: `<private>secret stuff</private>`
-- **Compression is optional** — the only time data leaves your machine, and only to the provider you configure.
-- **Your data, your disk.** Everything lives in `~/.longmem/memory.db`. Delete it anytime.
+- **100% local.** Nothing leaves your machine unless you set up compression (optional, you choose the provider).
+- **Secrets are redacted automatically** — API keys, tokens, and passwords are stripped before saving.
+- **`<private>` tag** — wrap anything sensitive: `<private>my password is xyz</private>` — it won't be saved at all.
+- **Your data, your disk.** Everything is in `~/.longmem/`. Delete it anytime.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| Daemon not running | `systemctl --user start longmem` or `~/.longmem/bin/longmemd &` |
-| Port conflict | The daemon has single-instance protection. Change port in `~/.longmem/settings.json` |
-| `mem_search` returns nothing | Memory builds up as you use Claude Code / OpenCode. Give it a session first |
-| Compression failing | Check API key, model name, and account credits. Circuit breaker pauses after 5 failures |
+**Memory search returns nothing?**
+Memory builds up as you work. Use Claude Code or OpenCode for a session first, then ask about it next time.
 
----
+**LongMem not responding?**
+```bash
+# Check if it's running
+curl -s http://127.0.0.1:38741/health
 
-## Architecture
+# Restart it (Linux)
+systemctl --user restart longmem
 
-```
-~/.longmem/
-  bin/
-    longmemd          # daemon binary
-    longmem-mcp       # MCP server binary
-    longmem-hook      # hook binary
-  daemon.js           # daemon (bun/dev mode)
-  mcp.js              # MCP server (bun/dev mode)
-  hooks/              # hook scripts (bun/dev mode)
-  memory.db           # SQLite FTS5 database
-  settings.json       # config (chmod 600)
-  version             # release tag
-  logs/
+# Restart it (Mac)
+launchctl stop com.longmem.daemon && launchctl start com.longmem.daemon
 ```
 
-### Claude Code integration
-
-| Hook | Purpose |
-|------|---------|
-| `PostToolUse` | Captures tool calls (fire-and-forget) |
-| `UserPromptSubmit` | Indexes prompts, detects topic changes, injects relevant context |
-| `Stop` | Finalizes session for compression |
-
-All hooks exit `0` — they never block your workflow.
-
-### OpenCode integration
-
-Patches `~/.config/opencode/config.json` with MCP server + plugin + instructions.
+**Compression not working?**
+Check that your API key is correct and your account has credits. LongMem pauses compression automatically after repeated failures and retries later.
 
 ---
 
 ## Ideas & feedback
 
-Got a feature idea, found a bug, or want to discuss a use case? [Open an issue](https://github.com/clouitreee/LongMem/issues) — all ideas are welcome.
+Got a feature idea, found a bug, or want to share how you use it? **[Open an issue](https://github.com/clouitreee/LongMem/issues)** — all ideas are welcome.
 
-Some things we're thinking about:
+Things we're considering:
 
-- `mem_forget` — delete specific memories by ID or pattern
-- Memory browser — local TUI/web UI to explore and manage observations
-- Per-project DB isolation
-- Homebrew tap, `.deb` / `.rpm` packages
-- Windows support (daemon + MCP work; hooks untested)
+- Forget specific memories on demand
+- Visual memory browser in the terminal
+- Separate databases per project
+- Homebrew / apt packages
+- Windows support
 
-If any of these would be useful to you, say so in an issue — it helps us prioritize.
+Tell us what matters to you — it helps us prioritize.
 
 ---
 
-## Contributing
+## For developers
+
+<details>
+<summary>Architecture, hooks, and contributing</summary>
+
+### How it works
+
+A small background service (`longmemd`) runs on your machine. It captures activity via hooks (Claude Code) or a plugin (OpenCode), stores it in a SQLite database, and exposes search via MCP tools.
+
+```
+Your editor  ──▶  longmemd (local)  ──▶  ~/.longmem/memory.db
+                       │
+                  MCP tools: mem_search, mem_get, mem_timeline
+```
+
+### File layout
+
+```
+~/.longmem/
+  memory.db       ← your memories (SQLite)
+  settings.json   ← configuration
+  daemon.js       ← memory service
+  mcp.js          ← search tools
+  hooks/          ← activity capture
+  bin/            ← compiled binaries (if using release install)
+  logs/
+```
+
+### Claude Code hooks
+
+| Hook | Purpose |
+|------|---------|
+| `PostToolUse` | Captures tool activity |
+| `UserPromptSubmit` | Indexes prompts, injects relevant context on topic change |
+| `Stop` | Finalizes session |
+
+All hooks exit cleanly — they never block your workflow.
+
+### Contributing
 
 ```bash
 git clone https://github.com/clouitreee/LongMem.git && cd LongMem
 bun install && bun run build && bun test
 ```
 
-**Rules:** hooks must exit `0`, daemon binds `127.0.0.1` only, config merging never overwrites user hooks, no secrets in logs.
+**Rules:** hooks must always exit 0, the daemon only binds to localhost, config changes must preserve existing user settings, no secrets in logs.
+
+</details>
 
 ---
 
 ## License
 
-MIT — *LongMem stores your coding sessions locally. You own your data.*
+MIT — *Your coding sessions, stored locally. You own your data.*
