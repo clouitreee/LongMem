@@ -6,4 +6,9 @@ export {
   truncateOutput,
   redactSecrets,
   sanitize,
+  extractPathHint,
+  isExcludedPath,
+  containsHighRiskPattern,
+  compileCustomPatterns,
+  redactWithCustomPatterns,
 } from "../shared/privacy.ts";

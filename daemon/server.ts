@@ -153,8 +153,16 @@ writeFileSync(PID_FILE, String(process.pid));
 
 runMigrations();
 
+// ── Privacy mode warning ──
+if (config.privacy.mode === "none") {
+  console.warn("[longmem] WARNING: Privacy mode is 'none' — secrets will NOT be redacted before storage or compression");
+}
+
 const sdk = new CompressionSDK(config.compression);
-const worker = new CompressionWorker(sdk, config.compression);
+const worker = new CompressionWorker(sdk, config.compression, {
+  mode: config.privacy.mode,
+  customPatterns: config.privacy.customPatterns,
+});
 const idleDetector = new IdleDetector(
   config.compression.idleThresholdSeconds * 1000,
   () => worker.processQueue()

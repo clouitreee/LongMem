@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
+export type PrivacyMode = "safe" | "flexible" | "none";
+
 export interface MemoryConfig {
   compression: {
     enabled: boolean;
@@ -24,8 +26,12 @@ export interface MemoryConfig {
   };
   privacy: {
     redactSecrets: boolean;
+    mode: PrivacyMode;
     maxInputSize: number;
     maxOutputSize: number;
+    excludePaths: string[];
+    excludeTools: string[];
+    customPatterns: Array<{ pattern: string; name: string }>;
   };
 }
 
@@ -35,6 +41,11 @@ const PROVIDERS: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   local: "http://localhost:11434/v1",
 };
+
+const DEFAULT_EXCLUDE_PATHS = [
+  ".env", ".env.*", "*.pem", "*.key", "id_rsa", "id_rsa.*", "id_ed25519",
+  "*.p12", "*.pfx", "*.jks", "credentials.json", "service-account.json",
+];
 
 const DEFAULTS: MemoryConfig = {
   compression: {
@@ -57,8 +68,12 @@ const DEFAULTS: MemoryConfig = {
   },
   privacy: {
     redactSecrets: true,
+    mode: "safe",
     maxInputSize: 4096,
     maxOutputSize: 8192,
+    excludePaths: DEFAULT_EXCLUDE_PATHS,
+    excludeTools: [],
+    customPatterns: [],
   },
 };
 
@@ -89,10 +104,20 @@ export function loadConfig(): MemoryConfig {
       merged.compression.baseURL = PROVIDERS[merged.compression.provider];
     }
 
+    // Backward compat: infer mode from legacy redactSecrets if mode not set
+    if (!userConfig.privacy?.mode) {
+      merged.privacy.mode = merged.privacy.redactSecrets ? "safe" : "none";
+    }
+
+    // Validate mode
+    if (!["safe", "flexible", "none"].includes(merged.privacy.mode)) {
+      merged.privacy.mode = "safe";
+    }
+
     return merged;
   } catch {
     return DEFAULTS;
   }
 }
 
-export { PROVIDERS };
+export { PROVIDERS, DEFAULT_EXCLUDE_PATHS };
