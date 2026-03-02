@@ -22,7 +22,7 @@ export interface DetectedDaemon {
 }
 
 export interface DetectionResult {
-  platform: "linux-x64" | "macos-arm64" | "macos-x64";
+  platform: "linux-arm64" | "linux-x64" | "macos-arm64" | "macos-x64";
   clients: DetectedClient[];
   daemon: DetectedDaemon;
   bunPath: string | null;
@@ -36,9 +36,10 @@ const MEMORY_DIR = join(HOME, ".longmem");
 
 // ─── Platform ───────────────────────────────────────────────────────────────
 
-function detectPlatform(): "linux-x64" | "macos-arm64" | "macos-x64" {
+function detectPlatform(): "linux-arm64" | "linux-x64" | "macos-arm64" | "macos-x64" {
   const os = platform();
   const cpu = arch();
+  if (os === "linux" && cpu === "arm64") return "linux-arm64";
   if (os === "linux") return "linux-x64";
   if (os === "darwin" && cpu === "arm64") return "macos-arm64";
   if (os === "darwin") return "macos-x64";

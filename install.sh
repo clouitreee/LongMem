@@ -44,7 +44,7 @@ detect_platform() {
     Linux)
       case "$arch" in
         x86_64)  echo "linux-x64" ;;
-        aarch64) die "Linux arm64 not yet in release — build from source: https://github.com/${REPO}" ;;
+        aarch64) echo "linux-arm64" ;;
         *)       die "Unsupported Linux arch: $arch" ;;
       esac ;;
     Darwin)
@@ -129,4 +129,4 @@ echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
 
 echo "Running setup..."
 echo ""
-exec "${BIN_DIR}/longmem-cli" "${PASSTHROUGH_ARGS[@]}"
+exec "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}

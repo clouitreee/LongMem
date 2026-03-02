@@ -133,16 +133,16 @@ async function installLaunchdPlist(execPath: string): Promise<ServiceResult> {
 
 export async function installService(
   daemonBinaryPath: string,
-  plat: "linux-x64" | "macos-arm64" | "macos-x64"
+  plat: "linux-arm64" | "linux-x64" | "macos-arm64" | "macos-x64"
 ): Promise<ServiceResult> {
-  if (plat === "linux-x64") {
+  if (plat.startsWith("linux")) {
     return installSystemdUnit(daemonBinaryPath);
   }
   return installLaunchdPlist(daemonBinaryPath);
 }
 
-export function isServiceInstalled(plat: "linux-x64" | "macos-arm64" | "macos-x64"): boolean {
-  if (plat === "linux-x64") {
+export function isServiceInstalled(plat: "linux-arm64" | "linux-x64" | "macos-arm64" | "macos-x64"): boolean {
+  if (plat.startsWith("linux")) {
     return existsSync(join(HOME, ".config", "systemd", "user", "longmem.service"));
   }
   return existsSync(join(HOME, "Library", "LaunchAgents", "com.longmem.daemon.plist"));
