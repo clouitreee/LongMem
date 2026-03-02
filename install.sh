@@ -95,6 +95,7 @@ download() {
   local url="$1" dest="$2" checksum_url="${1}.sha256"
   echo "  Downloading $(basename "$dest")..."
   curl -fsSL --progress-bar "$url" -o "$dest"
+  chmod +x "$dest"
 
   local sha_cmd=""
   if command -v sha256sum &>/dev/null; then sha_cmd="sha256sum";
@@ -114,15 +115,11 @@ download() {
   fi
 }
 
-# Download daemon, MCP, hook binaries
+# Download all binaries
 download "${BASE_URL}/longmemd-${PLATFORM}" "${BIN_DIR}/longmemd"
 download "${BASE_URL}/longmem-mcp-${PLATFORM}" "${BIN_DIR}/longmem-mcp"
 download "${BASE_URL}/longmem-hook-${PLATFORM}" "${BIN_DIR}/longmem-hook"
-chmod +x "${BIN_DIR}/longmemd" "${BIN_DIR}/longmem-mcp" "${BIN_DIR}/longmem-hook"
-
-# Download CLI binary (the TUI installer)
 download "${BASE_URL}/longmem-cli-${PLATFORM}" "${BIN_DIR}/longmem-cli"
-chmod +x "${BIN_DIR}/longmem-cli"
 
 ok "Downloaded all binaries"
 echo ""
