@@ -24,6 +24,9 @@ import { runFullTui } from "./shared/tui.ts";
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
 
+// When running as compiled binary from ~/.longmem/bin/, files are already in place
+const runningFromInstall = import.meta.dir.startsWith(MEMORY_DIR);
+
 // ─── Parse Args ─────────────────────────────────────────────────────────────
 
 interface Flags {
@@ -51,12 +54,14 @@ const YELLOW = "\x1b[33m";
 const BOLD = "\x1b[1m";
 const RESET = "\x1b[0m";
 
-// ─── Banner ─────────────────────────────────────────────────────────────────
+// ─── Banner (skip if called from install.sh which already shows one) ────────
 
-console.log(`${BOLD}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${RESET}`);
-console.log(`${BOLD}\u2551       LongMem installer          \u2551${RESET}`);
-console.log(`${BOLD}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${RESET}`);
-console.log("");
+if (!runningFromInstall) {
+  console.log(`${BOLD}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${RESET}`);
+  console.log(`${BOLD}\u2551       LongMem installer          \u2551${RESET}`);
+  console.log(`${BOLD}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${RESET}`);
+  console.log("");
+}
 
 if (flags.dryRun) {
   console.log(`${YELLOW}  (dry-run mode \u2014 no files will be modified)${RESET}\n`);
@@ -106,37 +111,41 @@ if (!flags.dryRun) {
   mkdirSync(join(MEMORY_DIR, "bin"), { recursive: true });
   chmodSync(MEMORY_DIR, 0o700);
 
-  // Copy compiled JS files (bun mode)
-  const jsFiles: [string, string][] = [
-    [join(DIST_DIR, "daemon.js"), join(MEMORY_DIR, "daemon.js")],
-    [join(DIST_DIR, "mcp.js"), join(MEMORY_DIR, "mcp.js")],
-    [join(DIST_DIR, "hooks", "post-tool.js"), join(MEMORY_DIR, "hooks", "post-tool.js")],
-    [join(DIST_DIR, "hooks", "prompt.js"), join(MEMORY_DIR, "hooks", "prompt.js")],
-    [join(DIST_DIR, "hooks", "stop.js"), join(MEMORY_DIR, "hooks", "stop.js")],
-  ];
+  if (runningFromInstall) {
+    // Running as compiled binary from ~/.longmem/bin/ — files already in place
+    console.log(`${GREEN}\u2713${RESET} Binaries already installed`);
+  } else {
+    // Running from source — copy dist/ files to ~/.longmem/
+    const jsFiles: [string, string][] = [
+      [join(DIST_DIR, "daemon.js"), join(MEMORY_DIR, "daemon.js")],
+      [join(DIST_DIR, "mcp.js"), join(MEMORY_DIR, "mcp.js")],
+      [join(DIST_DIR, "hooks", "post-tool.js"), join(MEMORY_DIR, "hooks", "post-tool.js")],
+      [join(DIST_DIR, "hooks", "prompt.js"), join(MEMORY_DIR, "hooks", "prompt.js")],
+      [join(DIST_DIR, "hooks", "stop.js"), join(MEMORY_DIR, "hooks", "stop.js")],
+    ];
 
-  let jsCount = 0;
-  for (const [src, dst] of jsFiles) {
-    if (existsSync(src)) { copyFileSync(src, dst); jsCount++; }
-  }
+    let jsCount = 0;
+    for (const [src, dst] of jsFiles) {
+      if (existsSync(src)) { copyFileSync(src, dst); jsCount++; }
+    }
 
-  // Copy compiled binaries if they exist
-  const binFiles: [string, string][] = [
-    [join(DIST_DIR, "bin", `longmemd-${detection.platform}`), join(MEMORY_DIR, "bin", "longmemd")],
-    [join(DIST_DIR, "bin", `longmem-mcp-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-mcp")],
-    [join(DIST_DIR, "bin", `longmem-hook-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-hook")],
-  ];
+    const binFiles: [string, string][] = [
+      [join(DIST_DIR, "bin", `longmemd-${detection.platform}`), join(MEMORY_DIR, "bin", "longmemd")],
+      [join(DIST_DIR, "bin", `longmem-mcp-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-mcp")],
+      [join(DIST_DIR, "bin", `longmem-hook-${detection.platform}`), join(MEMORY_DIR, "bin", "longmem-hook")],
+    ];
 
-  let binCount = 0;
-  for (const [src, dst] of binFiles) {
-    if (existsSync(src)) { copyFileSync(src, dst); chmodSync(dst, 0o755); binCount++; }
-  }
+    let binCount = 0;
+    for (const [src, dst] of binFiles) {
+      if (existsSync(src)) { copyFileSync(src, dst); chmodSync(dst, 0o755); binCount++; }
+    }
 
-  if (binCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${binCount} binaries`);
-  if (jsCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${jsCount} JS modules`);
-  if (binCount === 0 && jsCount === 0) {
-    console.error("\u2717 No built files found. Run: bun run build");
-    process.exit(1);
+    if (binCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${binCount} binaries`);
+    if (jsCount > 0) console.log(`${GREEN}\u2713${RESET} Copied ${jsCount} JS modules`);
+    if (binCount === 0 && jsCount === 0) {
+      console.error("\u2717 No built files found. Run: bun run build");
+      process.exit(1);
+    }
   }
 
   // Create settings.json with defaults (never overwrite existing)
