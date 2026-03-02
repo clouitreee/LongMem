@@ -83,6 +83,13 @@ BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
 mkdir -p "$BIN_DIR" "$LOG_DIR"
 chmod 700 "$INSTALL_DIR"
 
+# Stop running daemon before overwriting binaries
+if curl -sf "http://127.0.0.1:38741/health" &>/dev/null; then
+  echo "  Stopping daemon for update..."
+  curl -sf -X POST "http://127.0.0.1:38741/shutdown" &>/dev/null || pkill -f longmemd 2>/dev/null || true
+  sleep 1
+fi
+
 # Download helper with checksum verification
 download() {
   local url="$1" dest="$2" checksum_url="${1}.sha256"
