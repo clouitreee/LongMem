@@ -171,14 +171,50 @@ curl -fsSL .../install.sh | bash -s -- --yes
 git pull && bun run build && bun run install.ts --yes
 ```
 
-### Uninstall
+---
+
+## Uninstall
+
+Clean removal in one command:
 
 ```bash
 bun run uninstall.ts
-# or: bun run uninstall.ts --yes --keep-data
 ```
 
-Stops daemon, removes service, restores your configs (preserves your other hooks), and moves `~/.longmem/` to a timestamped backup. Nothing is deleted permanently.
+| Flag | Effect |
+|------|--------|
+| `--yes` | Skip prompts |
+| `--dry-run` | Preview without changing anything |
+| `--keep-data` | Keep `memory.db` (your memories survive) |
+
+What the uninstaller does:
+
+1. Stops the daemon
+2. Removes the systemd / launchd service
+3. Restores your Claude Code and OpenCode configs (only removes LongMem entries — your other hooks stay)
+4. Moves `~/.longmem/` to `~/.longmem.backup-<timestamp>`
+
+Nothing is deleted permanently. You can always recover from the backup.
+
+**Manual uninstall** (if you prefer):
+```bash
+# Stop daemon
+curl -s -X POST http://127.0.0.1:38741/shutdown
+systemctl --user disable --now longmem   # Linux
+# launchctl unload ~/Library/LaunchAgents/com.longmem.daemon.plist  # macOS
+
+# Move to backup
+mv ~/.longmem ~/.longmem.backup-$(date +%s)
+
+# Restore configs
+cp ~/.claude/settings.json.pre-longmem-*.bak ~/.claude/settings.json
+```
+
+**Erase memory only** (keep LongMem installed):
+```bash
+rm ~/.longmem/memory.db
+# Daemon recreates it on next start
+```
 
 ---
 
@@ -233,6 +269,22 @@ All hooks exit `0` — they never block your workflow.
 ### OpenCode integration
 
 Patches `~/.config/opencode/config.json` with MCP server + plugin + instructions.
+
+---
+
+## Ideas & feedback
+
+Got a feature idea, found a bug, or want to discuss a use case? [Open an issue](https://github.com/clouitreee/LongMem/issues) — all ideas are welcome.
+
+Some things we're thinking about:
+
+- `mem_forget` — delete specific memories by ID or pattern
+- Memory browser — local TUI/web UI to explore and manage observations
+- Per-project DB isolation
+- Homebrew tap, `.deb` / `.rpm` packages
+- Windows support (daemon + MCP work; hooks untested)
+
+If any of these would be useful to you, say so in an issue — it helps us prioritize.
 
 ---
 
