@@ -225,10 +225,12 @@ if (!flags.noService && !flags.dryRun) {
 
   if (daemonExec) {
     let shouldInstall = flags.yes;
-    if (!shouldInstall && !detection.daemon.serviceInstalled) {
-      shouldInstall = await askYesNo("Install system service for daemon auto-start on login?", true);
-    } else if (detection.daemon.serviceInstalled) {
-      shouldInstall = true; // Re-install to update paths
+    if (!shouldInstall) {
+      if (detection.daemon.serviceInstalled) {
+        shouldInstall = await askYesNo("Update system service for daemon auto-start?", true);
+      } else {
+        shouldInstall = await askYesNo("Install system service for daemon auto-start on login?", true);
+      }
     }
 
     if (shouldInstall) {

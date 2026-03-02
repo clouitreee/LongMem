@@ -172,10 +172,7 @@ export async function verifyInstallation(): Promise<VerifyResult> {
   const allPassed = checks.every(c => c.ok);
   console.log("");
 
-  if (allPassed) {
-    console.log("══ LongMem is ready! ════════════════════════════════════\n");
-    console.log("  Changes take effect in your next Claude Code session.\n");
-  } else {
+  if (!allPassed) {
     console.log("══ Some checks failed ═══════════════════════════════════\n");
     console.log("  LongMem is partially installed. Check warnings above.\n");
   }
