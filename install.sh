@@ -129,4 +129,9 @@ echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
 
 echo "Running setup..."
 echo ""
-exec "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+# Reopen stdin from /dev/tty so the TUI works even when piped (curl | bash)
+if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
+  exec "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"} </dev/tty
+else
+  exec "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+fi
