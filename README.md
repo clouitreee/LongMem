@@ -18,7 +18,7 @@ No cloud. No manual notes. Everything stays on your machine.
 
 ## What you need
 
-- **Mac or Linux**
+- **Mac** (Apple Silicon or Intel) or **Linux** (x64 or ARM64)
 - **Claude Code** or **OpenCode** installed (at least one)
 - That's it
 
@@ -32,30 +32,46 @@ Paste this in your terminal:
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
 ```
 
-A setup wizard walks you through everything — no JSON editing needed:
+The setup wizard launches automatically — no JSON editing needed:
 
 1. Detects your tools (Claude Code, OpenCode)
 2. Lets you pick privacy mode, auto-context, and compression
 3. Configures hooks and MCP server
 4. Installs the background service
 5. Verifies everything works
+6. Scans your existing memory files (CLAUDE.md, auto-memory) and indexes them
+7. Asks if you want to remove Claude Code's auto-memory files (LongMem replaces them)
 
 ```
-◆  LongMem Setup Wizard
+┌  LongMem Setup Wizard
 │
-◇  Detected
-│  Claude Code CLI v2.1.50
-│  Daemon: binary mode, running
+◇  Detected ─────────────────────────────────────────╮
+│                                                    │
+│    Claude Code CLI v2.1.63 (configured)            │
+│    Daemon: binary mode, running                    │
+│                                                    │
+├────────────────────────────────────────────────────╯
 │
-◆  Privacy mode
-│  ● Safe (recommended)
-│  ○ Flexible
-│  ○ None
+◇  Privacy mode
+│  Safe (recommended)
 │
 ◇  Enable auto-context? … Yes
 ◇  Apply client configuration? … Yes
 ◇  Install system service? … Yes
 ◇  Enable compression? … Yes
+│
+◇  Indexed 6 file(s) into memory
+│
+◇  Found 5 Claude Code auto-memory file(s) ─────────╮
+│    ~/.claude/projects/.../memory/MEMORY.md         │
+│    ~/.claude/projects/.../memory/history.md         │
+│    ~/.claude/projects/.../memory/security.md        │
+├────────────────────────────────────────────────────╯
+│
+◆  LongMem replaces Claude Code's built-in memory.
+│  Remove these auto-memory files?
+│  ● Keep them
+│  ○ Remove all (already indexed into LongMem)
 │
 ◇  All checks passed
 │  ✓ Daemon health
@@ -125,7 +141,7 @@ You: what was that regex I used for email validation?
 
 By default, LongMem searches your raw activity. If you add an API key, it also generates summaries that make search smarter.
 
-The installer asks about this at the end. You can skip it and add it later — everything works without it.
+The setup wizard asks about this during install. You can skip it and add it later — everything works without it.
 
 Supported providers: **OpenRouter**, **OpenAI**, **Anthropic**, or a **local model** (Ollama).
 
@@ -134,6 +150,12 @@ Supported providers: **OpenRouter**, **OpenAI**, **Anthropic**, or a **local mod
 ## Update
 
 Re-run the same install command. It updates LongMem and keeps your memories:
+
+```bash
+curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
+```
+
+The setup wizard will launch again so you can review your settings. To update silently without prompts:
 
 ```bash
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
@@ -205,6 +227,8 @@ The wizard walks you through each setting interactively:
 | **System service** | Installs a systemd (Linux) or launchd (macOS) unit so the daemon starts automatically on login. |
 | **Compression** | Choose a provider (OpenRouter, OpenAI, Anthropic, or local Ollama), enter your API key, and enable background summarization for smarter search. Everything works without this — observations are stored raw. |
 | **Verification** | Checks daemon health, hook binary, MCP server, and config paths. Shows a pass/fail summary. |
+| **Ecosystem scan** | Indexes existing CLAUDE.md files, auto-memory files, skills, and OpenCode instructions into LongMem so nothing is lost. |
+| **Memory migration** | Lists Claude Code auto-memory files (`~/.claude/projects/*/memory/*.md`) and lets you remove them — their content is already indexed into LongMem. |
 
 All changes are saved atomically to `~/.longmem/settings.json` with an automatic backup. You can cancel at any step — nothing is written until you complete the wizard.
 
@@ -279,7 +303,6 @@ Things we're considering:
 - Forget specific memories on demand
 - Visual memory browser in the terminal
 - Hybrid search (text + semantic embeddings)
-- Ecosystem file ingest (CLAUDE.md, .cursorrules)
 - Separate databases per project
 - Homebrew / apt packages
 - Windows support
@@ -298,8 +321,8 @@ Tell us what matters to you — it helps us prioritize.
 A small background service (`longmemd`) runs on your machine. It captures activity via hooks (Claude Code) or a plugin (OpenCode), stores it in a SQLite database, and exposes search via MCP tools.
 
 ```
-Your editor  ──▶  longmemd (local)  ──▶  ~/.longmem/memory.db
-                       │
+Your editor  -->  longmemd (local)  -->  ~/.longmem/memory.db
+                       |
                   MCP tools: mem_search, mem_get, mem_timeline
 ```
 
@@ -307,12 +330,12 @@ Your editor  ──▶  longmemd (local)  ──▶  ~/.longmem/memory.db
 
 ```
 ~/.longmem/
-  memory.db       ← your memories (SQLite)
-  settings.json   ← configuration
-  daemon.js       ← memory service
-  mcp.js          ← search tools
-  hooks/          ← activity capture
-  bin/            ← compiled binaries (if using release install)
+  memory.db       <- your memories (SQLite)
+  settings.json   <- configuration
+  daemon.js       <- memory service
+  mcp.js          <- search tools
+  hooks/          <- activity capture
+  bin/            <- compiled binaries (longmemd, longmem-mcp, longmem-hook, longmem-cli)
   logs/
 ```
 
@@ -334,12 +357,22 @@ The session primer and topic-change injection can be toggled from the setup wiza
 
 LongMem uses 4 layers of defense to prevent secrets from leaking:
 
-1. **Path exclusion** — `.env`, `.pem`, `.key`, SSH keys → only metadata saved, never content
+1. **Path exclusion** — `.env`, `.pem`, `.key`, SSH keys -> only metadata saved, never content
 2. **Persist gate** — `redactSecrets()` strips 22+ secret patterns before writing to DB
 3. **Egress gate** — re-sanitizes data before sending to compression LLM
 4. **Kill switch** — `containsHighRiskPattern()` quarantines PEM keys, JWTs, AWS keys, DB connection strings with passwords
 
 Privacy mode and custom redaction patterns are configured through the setup wizard (`--tui`). In `flexible` mode, the wizard prompts for comma-separated regex patterns.
+
+### Supported platforms
+
+| Platform | Architecture | Build type |
+|----------|-------------|------------|
+| Linux | x64 | Native |
+| Linux | ARM64 | Cross-compiled |
+| macOS | Apple Silicon (ARM64) | Native |
+| macOS | Intel (x64) | Native |
+| Windows | x64 | Native (binaries only, no install.sh) |
 
 ### Contributing
 
