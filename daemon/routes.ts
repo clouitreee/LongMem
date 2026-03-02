@@ -2,18 +2,19 @@ import {
   createSession, getSessionDbId, markSessionCompleted,
   saveObservation, updateSessionPrompt, queueCompression,
   getFullObservation, getFullObservations, getStats,
-  saveUserObservation, getDB,
+  saveUserObservation, getDB, getPromptCount,
 } from "./db.ts";
 import {
   searchObservations, searchSessions, searchUserObservations,
   getRecentObservationsWithDecay, getTimeline,
   getRecentSessionPrompts, detectTopicChange, isVaguePrompt,
   searchProjectContext, formatContextBlock,
+  searchSessionPrimer, formatPrimerBlock,
 } from "./search.ts";
 import {
   stripAllMemoryTags, truncateInput, truncateOutput, isFullyPrivate,
   redactSecrets, extractPathHint, isExcludedPath,
-  compileCustomPatterns, redactWithCustomPatterns,
+  containsHighRiskPattern, compileCustomPatterns, redactWithCustomPatterns,
 } from "./privacy.ts";
 import { IdleDetector } from "./idle-detector.ts";
 import { CompressionWorker } from "./compression-worker.ts";
@@ -126,9 +127,13 @@ export function createRoutes(
 
       const cleanText = privacyEnabled ? redactSecrets(stripAllMemoryTags(text)) : stripAllMemoryTags(text);
 
+      // Get prompt count BEFORE saving (0 = this is the first prompt)
+      const promptCount = getPromptCount(dbSessionId);
+      const isFirstPrompt = promptCount === 0;
+
       // Get recent prompts BEFORE saving current one (for topic change detection)
       let recentPrompts: string[] = [];
-      if (withContext) {
+      if (withContext && !isFirstPrompt) {
         recentPrompts = getRecentSessionPrompts(dbSessionId, 3);
       }
 
@@ -138,29 +143,80 @@ export function createRoutes(
         return json({ status: "ok" });
       }
 
-      // ── Auto-context: detect topic change + search (300ms timeout) ──
+      // ── Auto-context injection ──
+      const autoCtx = config.autoContext;
+
+      if (!autoCtx.enabled) {
+        return json({ status: "ok", context: null, autoinject: false, reason: "disabled" });
+      }
+
       try {
         const contextPromise = (async () => {
+          // ── First prompt → Session Primer (always inject) ──
+          if (isFirstPrompt) {
+            const searchQuery = isVaguePrompt(cleanText) ? "" : cleanText;
+            const reason = searchQuery ? "fts" : "recency";
+            const entries = searchSessionPrimer(searchQuery, project, autoCtx.maxEntries);
+
+            if (entries.length === 0) {
+              return { context: null, autoinject: true, reason: "empty", entries: 0, bytes_injected: 0 };
+            }
+
+            let block = formatPrimerBlock(entries, project, autoCtx.maxTokens);
+
+            if (block) {
+              // ── Safety: sanitize the injected block ──
+              if (privacyEnabled) {
+                block = redactSecrets(block);
+              }
+              if (containsHighRiskPattern(block)) {
+                return { context: null, autoinject: true, reason: "quarantined", entries: entries.length, bytes_injected: 0 };
+              }
+            }
+
+            return {
+              context: block || null,
+              autoinject: true,
+              reason: block ? reason : "empty",
+              entries: entries.length,
+              bytes_injected: block ? block.length : 0,
+            };
+          }
+
+          // ── Subsequent prompts → topic change detection ──
           const topicChanged = detectTopicChange(cleanText, recentPrompts);
-          if (!topicChanged) return { context: null, topic_changed: false };
+          if (!topicChanged) {
+            return { context: null, autoinject: false, reason: "same_topic", topic_changed: false };
+          }
 
           const searchQuery = isVaguePrompt(cleanText) ? "" : cleanText;
-          const results = searchProjectContext(searchQuery, project, 5);
-          const context = formatContextBlock(results, project);
-          return { context: context || null, topic_changed: true };
+          const results = searchProjectContext(searchQuery, project, autoCtx.maxEntries);
+          let context = formatContextBlock(results, project);
+
+          if (context && privacyEnabled) {
+            context = redactSecrets(context);
+          }
+          if (context && containsHighRiskPattern(context)) {
+            return { context: null, autoinject: true, reason: "quarantined", topic_changed: true };
+          }
+
+          return {
+            context: context || null,
+            autoinject: !!context,
+            reason: context ? (searchQuery ? "fts" : "recency") : "empty",
+            topic_changed: true,
+          };
         })();
 
-        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 300));
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), autoCtx.timeoutMs));
         const result = await Promise.race([contextPromise, timeout]);
 
         if (result === null) {
-          // Timeout — return ok without context (silent fallback)
-          return json({ status: "ok", context: null, topic_changed: false });
+          return json({ status: "ok", context: null, autoinject: false, reason: "timeout" });
         }
         return json({ status: "ok", ...result });
       } catch {
-        // Any error in context search — fail silently
-        return json({ status: "ok", context: null, topic_changed: false });
+        return json({ status: "ok", context: null, autoinject: false, reason: "error" });
       }
     },
 

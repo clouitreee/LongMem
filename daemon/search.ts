@@ -163,6 +163,98 @@ export function formatContextBlock(
   return `<longmem-context>\n${lines.join("\n")}\n</longmem-context>`;
 }
 
+// ─── Session Primer (first-prompt auto-injection) ───────────────────────────
+
+export interface PrimerEntry {
+  id: number;
+  tool_name: string;
+  compressed_summary: string;
+  files_referenced: string | null;
+  created_at: string;
+}
+
+/**
+ * Get recent observations for session primer injection.
+ * ONLY returns compressed_summary — never raw tool_input/tool_output.
+ * If query is provided and non-vague, searches FTS. Otherwise uses recency.
+ */
+export function searchSessionPrimer(
+  query: string,
+  project: string,
+  limit = 5,
+): PrimerEntry[] {
+  const database = getDB();
+
+  // Concrete query → FTS search (only observations with summaries)
+  if (query && !isVaguePrompt(query)) {
+    const searchTerms = query
+      .split(/\s+/)
+      .filter(t => t.length > 1)
+      .map(t => `${t.replace(/['"*]/g, "")}*`)
+      .join(" OR ");
+
+    if (searchTerms) {
+      try {
+        const results = database.prepare(`
+          SELECT o.id, o.tool_name, o.compressed_summary, o.files_referenced, o.created_at
+          FROM observations_fts
+          JOIN observations o ON observations_fts.rowid = o.id
+          JOIN sessions s ON o.session_id = s.id
+          WHERE observations_fts MATCH ? AND s.project = ?
+            AND o.compressed_summary IS NOT NULL AND o.compressed_summary != ''
+          ORDER BY bm25(observations_fts) * (1.0 + 1.0/(1.0 + julianday('now') - julianday(o.created_at))) DESC
+          LIMIT ?
+        `).all(searchTerms, project, limit) as PrimerEntry[];
+
+        if (results.length > 0) return results;
+      } catch {}
+      // Fall through to recency if FTS fails or returns nothing
+    }
+  }
+
+  // Vague query or FTS empty → recency for this project
+  return database.prepare(`
+    SELECT o.id, o.tool_name, o.compressed_summary, o.files_referenced, o.created_at
+    FROM observations o
+    JOIN sessions s ON o.session_id = s.id
+    WHERE s.project = ?
+      AND o.compressed_summary IS NOT NULL AND o.compressed_summary != ''
+    ORDER BY o.created_at DESC
+    LIMIT ?
+  `).all(project, limit) as PrimerEntry[];
+}
+
+/**
+ * Format primer entries into an injection block.
+ * Truncates total output to maxTokens (estimated as chars * 0.75).
+ */
+export function formatPrimerBlock(
+  entries: PrimerEntry[],
+  project: string,
+  maxTokens: number,
+): string | null {
+  if (entries.length === 0) return null;
+
+  const maxChars = Math.floor(maxTokens / 0.75); // rough token→char estimate
+  const lines: string[] = [`Recent work in "${project}":`];
+  let totalChars = lines[0].length;
+
+  for (const e of entries) {
+    const date = e.created_at?.slice(0, 10) || "";
+    const summary = (e.compressed_summary || "").slice(0, 120);
+    const files = e.files_referenced ? ` [${e.files_referenced}]` : "";
+    const line = `  [${date}] ${e.tool_name}: ${summary}${files}`;
+
+    if (totalChars + line.length > maxChars) break;
+    lines.push(line);
+    totalChars += line.length;
+  }
+
+  if (lines.length <= 1) return null; // only header, no entries fit
+
+  return `<longmem-context>\n${lines.join("\n")}\n</longmem-context>`;
+}
+
 // ─── Types & Existing Functions ──────────────────────────────────────────────
 
 export interface SearchResult {

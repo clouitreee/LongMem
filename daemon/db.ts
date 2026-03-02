@@ -198,6 +198,13 @@ export function updateSessionPrompt(dbId: number, prompt: string): number {
   return promptNumber;
 }
 
+export function getPromptCount(dbSessionId: number): number {
+  const result = getDB().prepare(
+    "SELECT COUNT(*) as n FROM user_prompts WHERE session_id = ?"
+  ).get(dbSessionId) as { n: number };
+  return result.n;
+}
+
 // ─── Observations ───────────────────────────────────────────────────────────
 
 export function saveObservation(

@@ -4,7 +4,15 @@ import { homedir } from "os";
 
 export type PrivacyMode = "safe" | "flexible" | "none";
 
+export interface AutoContextConfig {
+  enabled: boolean;
+  maxEntries: number;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
 export interface MemoryConfig {
+  autoContext: AutoContextConfig;
   compression: {
     enabled: boolean;
     provider: string;
@@ -48,6 +56,12 @@ const DEFAULT_EXCLUDE_PATHS = [
 ];
 
 const DEFAULTS: MemoryConfig = {
+  autoContext: {
+    enabled: true,
+    maxEntries: 5,
+    maxTokens: 500,
+    timeoutMs: 300,
+  },
   compression: {
     enabled: true,
     provider: "openrouter",
