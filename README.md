@@ -183,7 +183,7 @@ The database is recreated automatically next session.
 
 ## Settings
 
-Run the setup wizard anytime to change privacy mode, auto-context, compression, and more:
+Run the setup wizard anytime:
 
 ```bash
 ~/.longmem/bin/longmem-cli --tui
@@ -194,6 +194,19 @@ Or from source:
 ```bash
 bun install.ts --tui
 ```
+
+The wizard walks you through each setting interactively:
+
+| Screen | What it configures |
+|--------|--------------------|
+| **Privacy mode** | Choose between `safe` (default — redacts secrets and blocks sensitive files), `flexible` (same + your own custom regex patterns), or `none` (no redaction, for fully local setups). Selecting `none` requires double confirmation. |
+| **Auto-context** | Toggle automatic memory injection at session start. When enabled, LongMem searches for relevant past work and injects it before your first prompt. |
+| **Client configuration** | Reviews and applies hooks (`PostToolUse`, `UserPromptSubmit`, `Stop`) and MCP server registration to Claude Code and/or OpenCode. Shows a preview before applying. Skips clients that are already configured. |
+| **System service** | Installs a systemd (Linux) or launchd (macOS) unit so the daemon starts automatically on login. |
+| **Compression** | Choose a provider (OpenRouter, OpenAI, Anthropic, or local Ollama), enter your API key, and enable background summarization for smarter search. Everything works without this — observations are stored raw. |
+| **Verification** | Checks daemon health, hook binary, MCP server, and config paths. Shows a pass/fail summary. |
+
+All changes are saved atomically to `~/.longmem/settings.json` with an automatic backup. You can cancel at any step — nothing is written until you complete the wizard.
 
 <details>
 <summary>Advanced: edit settings.json directly</summary>
