@@ -50,6 +50,7 @@ function parseArgs(argv: string[]): Flags {
 }
 
 const flags = parseArgs(process.argv.slice(2));
+const forceHeadless = process.env.LONGMEM_HEADLESS === "1";
 
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
@@ -183,7 +184,7 @@ if (!flags.dryRun) {
 
 // ─── 4. Branch: TUI or Headless ─────────────────────────────────────────────
 
-if (flags.tui || (!flags.yes && process.stdin.isTTY)) {
+if (!forceHeadless && (flags.tui || (!flags.yes && process.stdin.isTTY))) {
   // Interactive: full TUI
   await runFullTui({ detection, noService: flags.noService, dryRun: flags.dryRun });
 } else {
