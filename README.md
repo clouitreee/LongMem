@@ -2,17 +2,17 @@
 
 Persistent memory for AI coding assistants.
 
-LongMem records your local coding activity so your assistant can recall what you were working on across sessions. Data stays on your machine.
+LongMem stores your local coding activity so your assistant can recall what you did across sessions. Data stays on your machine.
 
 ## Requirements
 
 - macOS (Apple Silicon or Intel) or Linux (x64 or ARM64)
 - Claude Code or OpenCode installed
-- Bun only if building from source
+- Bun only if you build from source
 
 ## Install
 
-Interactive install (recommended):
+Interactive install (bash wizard):
 
 ```bash
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
@@ -24,17 +24,17 @@ Non-interactive install (defaults):
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
 ```
 
-The installer uses a simple shell wizard (no Bun TUI) and writes settings to:
+The installer uses a simple bash menu (no @clack/prompts TUI). Settings are written to:
 
 ```
 ~/.longmem/settings.json
 ```
 
-Reconfigure later by re-running the installer or editing the file directly. If a settings file already exists, the installer will write a backup at `~/.longmem/settings.json.bak`.
+If the file already exists, the installer keeps it and writes a backup at `~/.longmem/settings.json.bak` when the wizard runs.
 
 ## Quick Start
 
-After install, LongMem runs a local daemon and configures supported clients. You can verify status with:
+After install, LongMem runs a local daemon and configures supported clients.
 
 ```bash
 longmem status
@@ -108,7 +108,7 @@ Minimal example:
 
 ## Privacy
 
-LongMem applies multiple layers of redaction before writing to disk or sending to optional compression providers.
+LongMem applies redaction before writing to disk or sending to optional compression providers.
 
 Privacy modes:
 
@@ -147,7 +147,7 @@ When enabled, LongMem injects relevant context at the start of a session.
 
 ## Compression (Optional)
 
-Enable compression to store short summaries for faster, more relevant search. Providers supported: OpenRouter, OpenAI, Anthropic, or local Ollama.
+Compression is optional and requires an API key unless you use Local (Ollama/LM Studio).
 
 ```json
 {
@@ -159,6 +159,8 @@ Enable compression to store short summaries for faster, more relevant search. Pr
   }
 }
 ```
+
+Without compression, LongMem still works fully. It just skips summaries.
 
 ## Troubleshooting
 
