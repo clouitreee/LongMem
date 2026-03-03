@@ -1,96 +1,132 @@
 # LongMem
 
-Persistent memory for AI coding assistants.
+<p align="center">
+  <img src="assets/hero.png" alt="LongMem hero" width="920">
+</p>
 
-LongMem stores your local coding activity so your assistant can recall what you did across sessions. Data stays on your machine.
+<p align="center">
+  <b>LongMem</b> — Persistent memory for AI coding assistants
+</p>
 
-## Requirements
+<p align="center">
+  <a href="https://github.com/clouitreee/LongMem/releases/latest">
+    <img src="https://img.shields.io/github/v/release/clouitreee/LongMem?style=flat-square" alt="release">
+  </a>
+  <a href="https://github.com/clouitreee/LongMem/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/clouitreee/LongMem/release.yml?style=flat-square" alt="build">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=flat-square" alt="license">
+  </a>
+</p>
 
-- macOS (Apple Silicon or Intel) or Linux (x64 or ARM64)
-- Claude Code or OpenCode installed
-- Bun only if you build from source
+<p align="center">
+  <b>Never repeat yourself to your AI again.</b><br>
+  LongMem keeps a private, local memory of your coding work so your assistant always starts with context.
+</p>
 
-## Install
+<p align="center">
+  <img src="assets/demo.gif" alt="LongMem demo" width="860">
+</p>
 
-Interactive install (bash wizard):
+---
 
-```bash
-curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
-```
+## The problem
 
-Non-interactive install (defaults):
+Every new session resets your assistant’s memory. You lose context and waste time re‑explaining what you already did.
 
-```bash
-curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
-```
+## The fix
 
-The installer uses a simple bash menu (no @clack/prompts TUI). Settings are written to:
+LongMem records your local coding activity and stores it on your machine. Your assistant can then recall what you were working on without you doing the recap.
 
-```
-~/.longmem/settings.json
-```
+**No cloud. No manual notes. Local‑first by default.**
 
-If the file already exists, the installer keeps it and writes a backup at `~/.longmem/settings.json.bak` when the wizard runs.
+---
 
-## Quick Start
+## What LongMem stores (and what it doesn’t)
 
-After install, LongMem runs a local daemon and configures supported clients.
+**Stored locally:**
+- prompts
+- commands
+- tool outputs (after redaction)
+- file references
 
-```bash
-longmem status
-```
+**Never uploaded**, unless you explicitly enable compression with a cloud provider.
 
-## CLI Commands
+---
 
-```bash
-# Daemon management
-longmem start              # Start the memory daemon
-longmem stop               # Stop the daemon
-longmem status             # Check daemon status
-longmem stats              # Show memory statistics
-longmem logs [-n 50] [-f]  # View recent logs (or follow)
-
-# Memory export
-longmem export                       # Export all to JSON
-longmem export --format markdown     # Export as Markdown
-longmem export --days 30             # Last 30 days only
-longmem export --project myapp       # Specific project
-longmem export -o output.json        # Write to file
-
-# Version
-longmem --version
-```
-
-## How It Works
+## How it works (at a glance)
 
 ```
 Claude Code / OpenCode
         |
       hooks
         v
-    longmemd  <---- local HTTP API (127.0.0.1:38741)
+   +------------+
+   |  longmemd  |  (local daemon)
+   +------------+
         |
-     SQLite
+     SQLite DB
         v
-   ~/.longmem/memory.db
-        ^
-        |
-     MCP tools
+  ~/.longmem/memory.db
 ```
 
-Components:
+---
 
-| Component | Purpose |
-|-----------|---------|
-| `longmemd` | Background daemon that stores and indexes activity |
-| Hook binaries | Capture tool usage and prompts |
-| MCP server | Exposes `mem_search`, `mem_get`, `mem_timeline`, `mem_export` |
+## Requirements
+
+- macOS (Apple Silicon or Intel) or Linux (x64 / ARM64)
+- Claude Code or OpenCode installed
+- Bun only if you build from source
+
+---
+
+## Install (interactive)
+
+```bash
+curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
+```
+
+You’ll get a simple **bash menu** to choose:
+- Privacy mode
+- Auto‑context
+- Optional compression (API key if needed)
+
+### Non‑interactive install
+
+```bash
+curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
+```
+
+---
+
+## Quick start
+
+```bash
+longmem status
+```
+
+If the daemon is running, you’re done.
+
+---
+
+## Why users like it
+
+- **“I don’t have to repeat myself.”**
+- **“My assistant remembers yesterday’s bugs.”**
+- **“No cloud. My data stays local.”**
+
+---
 
 ## Configuration
 
-All settings live in `~/.longmem/settings.json`.
+Your config lives here:
 
-Minimal example:
+```
+~/.longmem/settings.json
+```
+
+Example:
 
 ```json
 {
@@ -106,83 +142,56 @@ Minimal example:
 }
 ```
 
-## Privacy
+---
 
-LongMem applies redaction before writing to disk or sending to optional compression providers.
-
-Privacy modes:
+## Privacy modes
 
 | Mode | Behavior |
 |------|----------|
-| `safe` | Redacts common secrets and blocks sensitive files |
-| `flexible` | Same as safe + custom regex patterns |
-| `none` | No redaction (only for fully local setups) |
+| `safe` | Redacts common secrets + blocks sensitive files |
+| `flexible` | Safe + custom regex patterns |
+| `none` | No redaction (local‑only setups) |
 
-Custom redaction patterns:
+---
 
-```json
-{
-  "privacy": {
-    "mode": "flexible",
-    "customPatterns": [
-      { "name": "api_key", "pattern": "sk-[a-zA-Z0-9]+" }
-    ]
-  }
-}
+## Compression (optional)
+
+Compression creates short summaries that improve recall and search relevance.
+
+- **No compression:** LongMem still works fully (no summaries).
+- **With compression:** better recall, requires API key (unless Local).
+
+---
+
+## Commands
+
+```bash
+longmem start
+longmem stop
+longmem status
+longmem stats
+longmem logs -n 50
+
+longmem export
+longmem export --format markdown
+longmem export --days 30
 ```
 
-## Auto-Context
-
-When enabled, LongMem injects relevant context at the start of a session.
-
-```json
-{
-  "autoContext": {
-    "enabled": true,
-    "maxEntries": 5,
-    "maxTokens": 500
-  }
-}
-```
-
-## Compression (Optional)
-
-Compression is optional and requires an API key unless you use Local (Ollama/LM Studio).
-
-```json
-{
-  "compression": {
-    "enabled": true,
-    "provider": "openrouter",
-    "model": "meta-llama/llama-3.1-8b-instruct",
-    "apiKey": "your-key-here"
-  }
-}
-```
-
-Without compression, LongMem still works fully. It just skips summaries.
+---
 
 ## Troubleshooting
 
-Check daemon health:
+**Installer hangs**
 
 ```bash
-curl -s http://127.0.0.1:38741/health
+curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash -s -- --yes
 ```
 
-Restart and check logs:
+**Config errors**
 
-```bash
-longmem stop
-longmem start
-longmem logs -n 100
-```
+LongMem auto‑backs up invalid JSON and repairs it.
 
-If hooks do not run, verify binaries exist:
-
-```bash
-ls -la ~/.longmem/bin/longmem-hook
-```
+---
 
 ## Update
 
@@ -190,13 +199,17 @@ ls -la ~/.longmem/bin/longmem-hook
 curl -fsSL https://github.com/clouitreee/LongMem/releases/latest/download/install.sh | bash
 ```
 
+---
+
 ## Uninstall
 
 ```bash
-bun run uninstall.ts          # Interactive
-bun run uninstall.ts --yes    # No prompts
-bun run uninstall.ts --keep-data  # Keep memories
+bun run uninstall.ts
+bun run uninstall.ts --yes
+bun run uninstall.ts --keep-data
 ```
+
+---
 
 ## Development
 
@@ -206,6 +219,8 @@ bun install
 bun run build
 bun test
 ```
+
+---
 
 ## License
 
