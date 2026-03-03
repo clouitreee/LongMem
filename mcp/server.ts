@@ -117,7 +117,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         );
         const projectNote = project ? ` (project: ${project})` : " (all projects)";
         return `Found ${result.total} memories${projectNote}:\n\n${lines.join("\n\n")}`;
-      } catch {
+      } catch (err: any) {
+        console.error("[longmem-mcp] Search error:", err?.message || err);
         return "Search failed — daemon may be unavailable.";
       }
     }
@@ -151,7 +152,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         }
 
         return parts.join("\n") || "No timeline data found.";
-      } catch {
+      } catch (err: any) {
+        console.error("[longmem-mcp] Timeline error:", err?.message || err);
         return "Timeline retrieval failed.";
       }
     }
@@ -171,7 +173,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
           `Input: ${o.tool_input?.slice(0, 200) || ""}`,
           `Output: ${o.tool_output?.slice(0, 500) || ""}`,
         ].filter(Boolean).join("\n")).join("\n\n---\n\n");
-      } catch {
+      } catch (err: any) {
+        console.error("[longmem-mcp] Get observation error:", err?.message || err);
         return "Observation retrieval failed.";
       }
     }
@@ -210,7 +213,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         ].join("\n");
 
         return summary;
-      } catch {
+      } catch (err: any) {
+        console.error("[longmem-mcp] Export error:", err?.message || err);
         return "Export failed — daemon may be unavailable.";
       }
     }
@@ -261,6 +265,7 @@ process.stdin.on("data", async (chunk: string) => {
           const content = await callTool(toolName, toolArgs);
           respond(id, { content: [{ type: "text", text: content }] });
         } catch (err: any) {
+          console.error(`[longmem-mcp] Tool error (${toolName}):`, err?.message || err);
           respondError(id, -32000, err?.message || "Tool error");
         }
         break;

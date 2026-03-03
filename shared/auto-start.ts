@@ -1,42 +1,9 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "fs";
 import { join } from "path";
-import { homedir, platform } from "os";
+import { homedir } from "os";
 import { DaemonClient } from "./daemon-client.ts";
-import { DEFAULT_PORT, MEMORY_DIR, PID_FILE, BIN_DIR } from "./constants.ts";
-
-function isServiceManaged(): boolean {
-  const os = platform();
-  if (os === "linux") {
-    return existsSync(
-      join(homedir(), ".config", "systemd", "user", "longmem.service")
-    );
-  }
-  if (os === "darwin") {
-    return existsSync(
-      join(homedir(), "Library", "LaunchAgents", "com.longmem.daemon.plist")
-    );
-  }
-  return false;
-}
-
-function readPid(): number | null {
-  try {
-    if (!existsSync(PID_FILE)) return null;
-    const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
-    return pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { DEFAULT_PORT, MEMORY_DIR, BIN_DIR } from "./constants.ts";
+import { readPid, isProcessAlive, isServiceManaged } from "./process-utils.ts";
 
 export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean> {
   const client = new DaemonClient(port);
@@ -74,11 +41,19 @@ export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean>
   }
 
   try {
-    Bun.spawn(cmd, {
+    const child = Bun.spawn(cmd, {
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],
       env: { ...process.env },
     });
+
+    // Check if spawn succeeded
+    if (!child.pid) {
+      console.error(`[longmem] Failed to spawn daemon: ${cmd.join(" ")}`);
+      return false;
+    }
+
+    child.unref();
 
     for (let i = 0; i < 6; i++) {
       await Bun.sleep(500);
@@ -86,7 +61,8 @@ export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean>
     }
 
     return false;
-  } catch {
+  } catch (err: any) {
+    console.error(`[longmem] Error spawning daemon: ${err?.message || err}`);
     return false;
   }
 }

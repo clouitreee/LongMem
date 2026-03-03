@@ -24,6 +24,15 @@ export function getDB(dbPath?: string): Database {
   return db;
 }
 
+export function closeDB(): void {
+  if (db) {
+    try {
+      db.close();
+    } catch {}
+    db = null;
+  }
+}
+
 export function runMigrations(): void {
   const database = getDB();
 

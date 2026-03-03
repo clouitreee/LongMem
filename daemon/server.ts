@@ -1,9 +1,7 @@
 #!/usr/bin/env bun
-import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
-import { join } from "path";
-import { homedir, platform } from "os";
+import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { loadConfig } from "./config.ts";
-import { getDB, runMigrations } from "./db.ts";
+import { getDB, runMigrations, closeDB } from "./db.ts";
 import { CompressionSDK } from "./compression-sdk.ts";
 import { CompressionWorker } from "./compression-worker.ts";
 import { IdleDetector } from "./idle-detector.ts";
@@ -12,25 +10,7 @@ import {
   MEMORY_DIR, PID_FILE, LOGS_DIR, DEFAULT_HOST 
 } from "../shared/constants.ts";
 import { VERSION } from "../shared/version.ts";
-
-function readPid(): number | null {
-  try {
-    if (!existsSync(PID_FILE)) return null;
-    const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
-    return pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { readPid, isProcessAlive, isServiceManaged } from "../shared/process-utils.ts";
 
 async function checkExistingDaemon(port: number): Promise<{ alive: boolean; pid?: number; uptime?: number }> {
   try {
@@ -150,17 +130,6 @@ const routes = createRoutes(idleDetector, worker, config);
 
 setTimeout(() => worker.processQueue(), 5000);
 
-function isServiceManaged(): boolean {
-  const os = platform();
-  if (os === "linux") {
-    return existsSync(join(homedir(), ".config", "systemd", "user", "longmem.service"));
-  }
-  if (os === "darwin") {
-    return existsSync(join(homedir(), "Library", "LaunchAgents", "com.longmem.daemon.plist"));
-  }
-  return false;
-}
-
 let server: ReturnType<typeof Bun.serve>;
 
 try {
@@ -265,6 +234,7 @@ function shutdown(): void {
   console.log("[longmem] Shutting down...");
   idleDetector.destroy();
   server.stop();
+  closeDB();
   try { unlinkSync(PID_FILE); } catch {}
   process.exit(0);
 }

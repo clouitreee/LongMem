@@ -20,6 +20,10 @@ import { IdleDetector } from "./idle-detector.ts";
 import { CompressionWorker } from "./compression-worker.ts";
 import type { MemoryConfig } from "./config.ts";
 
+const MAX_LIMIT = 100;
+const MAX_ID_COUNT = 50;
+const MAX_DAYS = 365;
+
 // Session ID → DB session ID cache
 const sessionCache = new Map<string, number>();
 
@@ -59,13 +63,16 @@ export function createRoutes(
       const project = String(body.project || "default");
       const directory = String(body.directory || "");
 
-      // ── Fast-path: truncate huge inputs before regex ──
+      // ── Fast-path: limit huge inputs before processing ──
       let rawInput = JSON.stringify(toolInput);
-      if (rawInput.length > 100_000) rawInput = rawInput.slice(0, config.privacy.maxInputSize);
-      if (rawOutput.length > 100_000) rawOutput = rawOutput.slice(0, config.privacy.maxOutputSize);
+      let rawOutput = String(body.tool_output || "");
 
-      let inputStr = truncateInput(stripAllMemoryTags(rawInput), config.privacy.maxInputSize);
-      let outputStr = truncateOutput(stripAllMemoryTags(rawOutput), config.privacy.maxOutputSize);
+      if (rawInput.length > 100_000) rawInput = rawInput.slice(0, 100_000);
+      if (rawOutput.length > 100_000) rawOutput = rawOutput.slice(0, 100_000);
+
+      // Strip memory tags first
+      let inputStr = stripAllMemoryTags(rawInput);
+      let outputStr = stripAllMemoryTags(rawOutput);
 
       // ── Tool exclusion gate ──
       if (config.privacy.excludeTools.includes(toolName)) {
@@ -87,7 +94,7 @@ export function createRoutes(
         return json({ status: "excluded", observation_id: obsId, reason: "path_denylist" });
       }
 
-      // ── Secret redaction ──
+      // ── Secret redaction (BEFORE final truncation) ──
       if (privacyEnabled) {
         inputStr = redactSecrets(inputStr);
         outputStr = redactSecrets(outputStr);
@@ -96,6 +103,10 @@ export function createRoutes(
           outputStr = redactWithCustomPatterns(outputStr, compiledCustom);
         }
       }
+
+      // ── Final truncation AFTER secret redaction ──
+      inputStr = truncateInput(inputStr, config.privacy.maxInputSize);
+      outputStr = truncateOutput(outputStr, config.privacy.maxOutputSize);
 
       if (isFullyPrivate(outputStr)) {
         return json({ status: "skipped", reason: "private" });
@@ -247,7 +258,7 @@ export function createRoutes(
     async handleSearch(params: URLSearchParams): Promise<Response> {
       const query = params.get("q") || "";
       const project = params.get("project") || undefined;
-      const limit = Math.min(parseInt(params.get("limit") || "5", 10), 50);
+      const limit = Math.min(Math.max(1, parseInt(params.get("limit") || "5", 10) || 5), MAX_LIMIT);
       const type = params.get("type") || "observations";
 
       let results: object[];
@@ -294,7 +305,7 @@ export function createRoutes(
     },
 
     async handleGetObservation(idParam: string): Promise<Response> {
-      const ids = idParam.split(",").map(Number).filter(n => !isNaN(n) && n > 0);
+      const ids = idParam.split(",").map(Number).filter(n => !isNaN(n) && n > 0).slice(0, MAX_ID_COUNT);
       if (ids.length === 0) return json({ error: "Invalid IDs" }, 400);
 
       const observations = getFullObservations(ids);
@@ -303,10 +314,10 @@ export function createRoutes(
 
     async handleTimeline(idParam: string, params: URLSearchParams): Promise<Response> {
       const id = parseInt(idParam, 10);
-      if (isNaN(id)) return json({ error: "Invalid ID" }, 400);
+      if (isNaN(id) || id <= 0) return json({ error: "Invalid ID" }, 400);
 
-      const before = Math.min(parseInt(params.get("before") || "3", 10), 10);
-      const after = Math.min(parseInt(params.get("after") || "3", 10), 10);
+      const before = Math.min(Math.max(0, parseInt(params.get("before") || "3", 10) || 3), MAX_LIMIT);
+      const after = Math.min(Math.max(0, parseInt(params.get("after") || "3", 10) || 3), MAX_LIMIT);
 
       return json(getTimeline(id, before, after));
     },
@@ -388,12 +399,13 @@ export function createRoutes(
 
     async handleExport(params: URLSearchParams): Promise<Response> {
       const project = params.get("project") || undefined;
-      const days = params.get("days") ? parseInt(params.get("days")!, 10) : undefined;
+      const daysParam = params.get("days");
+      const days = daysParam ? Math.min(Math.max(1, parseInt(daysParam, 10) || 1), MAX_DAYS) : undefined;
       const format = (params.get("format") as "json" | "markdown") || "json";
       const includeRaw = params.get("include_raw") === "true";
 
-      if (days && (isNaN(days) || days < 1 || days > 365)) {
-        return json({ error: "days must be between 1 and 365" }, 400);
+      if (daysParam && (isNaN(parseInt(daysParam, 10)) || parseInt(daysParam, 10) < 1 || parseInt(daysParam, 10) > MAX_DAYS)) {
+        return json({ error: `days must be between 1 and ${MAX_DAYS}` }, 400);
       }
 
       const data = exportMemory({ project, days, format, includeRaw });

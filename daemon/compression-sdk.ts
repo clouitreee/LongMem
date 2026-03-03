@@ -60,9 +60,25 @@ export class CompressionSDK {
       concepts: [toolName],
     };
 
+    // Safely serialize input/output with size limits
+    let inputStr: string;
+    let outputStr: string;
+    
+    try {
+      inputStr = JSON.stringify(toolInput, null, 2).slice(0, 1000);
+    } catch {
+      inputStr = "[input serialization failed]";
+    }
+    
+    try {
+      outputStr = (typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput)).slice(0, 2000);
+    } catch {
+      outputStr = "[output serialization failed]";
+    }
+
     const content = `Tool: ${toolName}
-Input: ${JSON.stringify(toolInput, null, 2).slice(0, 1000)}
-Output: ${(typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput)).slice(0, 2000)}`;
+Input: ${inputStr}
+Output: ${outputStr}`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);

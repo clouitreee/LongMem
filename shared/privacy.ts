@@ -72,11 +72,15 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   },
 ];
 
+// Pre-compiled regex patterns for redaction (source + flags)
+const COMPILED_SECRET_SOURCES: Array<{ source: string; flags: string }> = 
+  SECRET_PATTERNS.map(({ pattern }) => ({ source: pattern.source, flags: pattern.flags }));
+
 export function redactSecrets(text: string, placeholder = "[REDACTED]"): string {
   if (!text) return text;
   let result = text;
-  for (const { pattern } of SECRET_PATTERNS) {
-    result = result.replace(new RegExp(pattern.source, pattern.flags), placeholder);
+  for (const { source, flags } of COMPILED_SECRET_SOURCES) {
+    result = result.replace(new RegExp(source, flags), placeholder);
   }
   return result;
 }
