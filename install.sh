@@ -100,7 +100,8 @@ run_bash_wizard() {
     done
 
     if [[ "$comp_provider" != "local" ]]; then
-      read -r -p "API key for $provider: " comp_key
+      read -r -s -p "API key for $provider: " comp_key
+      echo ""
     fi
   fi
 

@@ -66,7 +66,7 @@ const DEFAULTS: MemoryConfig = {
     timeoutMs: 300,
   },
   compression: {
-    enabled: true,
+    enabled: false,
     provider: "openrouter",
     model: "meta-llama/llama-3.1-8b-instruct",
     apiKey: "",
@@ -129,7 +129,9 @@ export function loadConfig(): MemoryConfig {
     }
 
     return merged;
-  } catch {
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Parse error";
+    console.warn(`[longmem] Failed to parse settings.json (${SETTINGS_PATH}): ${msg}. Using defaults.`);
     return DEFAULTS;
   }
 }

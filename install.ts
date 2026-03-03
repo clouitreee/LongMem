@@ -160,7 +160,7 @@ if (!flags.dryRun) {
   if (!existsSync(SETTINGS_PATH)) {
     const defaultSettings = {
       compression: {
-        enabled: true,
+        enabled: false,
         provider: "openrouter",
         model: "meta-llama/llama-3.1-8b-instruct",
         apiKey: "",

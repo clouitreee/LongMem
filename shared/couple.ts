@@ -87,11 +87,24 @@ function safeWriteJSON(filePath: string, data: object): void {
   renameSync(tmpPath, filePath);
 }
 
+function recoverInvalidJson(filePath: string): void {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const badPath = `${filePath}.badjson-${ts}`;
+  try {
+    copyFileSync(filePath, badPath);
+  } catch {}
+  try {
+    writeFileSync(filePath, "{}");
+  } catch {}
+}
+
 function loadConfig(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   const result = parseJsonc(path);
   if (!result.ok) {
-    throw new Error(`Failed to parse ${path}: ${result.error}`);
+    console.warn(`  ${YELLOW}⚠${RESET}  Invalid JSON in ${path}: ${result.error}`);
+    recoverInvalidJson(path);
+    return {};
   }
   return result.data;
 }
