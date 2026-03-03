@@ -264,4 +264,5 @@ else
     echo -e "${BOLD}LongMem installed with defaults.${RESET}"
     echo "Edit settings here: ${INSTALL_DIR}/settings.json"
     echo ""
+  fi
 fi
