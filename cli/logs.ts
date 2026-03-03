@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { LOGS_DIR, MEMORY_DIR_NAME } from "../shared/constants.ts";
 
-const MEMORY_DIR = join(homedir(), ".longmem");
-const LOG_FILE = join(MEMORY_DIR, "logs", "daemon.log");
+const LOG_FILE = join(LOGS_DIR, "daemon.log");
 
 function printHelp(): void {
   console.log(`

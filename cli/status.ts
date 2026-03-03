@@ -1,10 +1,7 @@
 #!/usr/bin/env bun
 import { DaemonClient } from "../shared/daemon-client.ts";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
-
-const MEMORY_DIR = join(homedir(), ".longmem");
+import { existsSync } from "fs";
+import { MEMORY_DIR, VERSION_FILE, DEFAULT_DB_PATH } from "../shared/constants.ts";
 
 async function main(): Promise<void> {
   const client = new DaemonClient();
@@ -13,14 +10,13 @@ async function main(): Promise<void> {
   
   console.log(`Daemon: ${healthy ? "running" : "stopped"}`);
   
-  const versionPath = join(MEMORY_DIR, "version");
-  if (existsSync(versionPath)) {
-    console.log(`Version: ${readFileSync(versionPath, "utf-8").trim()}`);
+  if (existsSync(VERSION_FILE)) {
+    const { readFileSync } = await import("fs");
+    console.log(`Version: ${readFileSync(VERSION_FILE, "utf-8").trim()}`);
   }
   
-  const dbPath = join(MEMORY_DIR, "memory.db");
-  if (existsSync(dbPath)) {
-    const stats = Bun.file(dbPath).size;
+  if (existsSync(DEFAULT_DB_PATH)) {
+    const stats = Bun.file(DEFAULT_DB_PATH).size;
     const sizeMB = (stats / 1024 / 1024).toFixed(2);
     console.log(`Database: ${sizeMB} MB`);
   }

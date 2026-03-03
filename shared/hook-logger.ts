@@ -1,16 +1,16 @@
 import { appendFileSync, existsSync, mkdirSync } from "fs";
-import { join, homedir } from "path";
+import { join } from "path";
+import { LOGS_DIR } from "./constants.ts";
 
-const LOG_DIR = join(homedir(), ".longmem", "logs");
-const LOG_FILE = join(LOG_DIR, "hook.log");
+const HOOK_LOG_FILE = join(LOGS_DIR, "hook.log");
 
 export function logHookError(context: string, error: unknown): void {
   try {
-    if (!existsSync(LOG_DIR)) {
-      mkdirSync(LOG_DIR, { recursive: true });
+    if (!existsSync(LOGS_DIR)) {
+      mkdirSync(LOGS_DIR, { recursive: true });
     }
     const timestamp = new Date().toISOString();
     const message = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
-    appendFileSync(LOG_FILE, `${timestamp} [${context}] ${message}\n`);
+    appendFileSync(HOOK_LOG_FILE, `${timestamp} [${context}] ${message}\n`);
   } catch {}
 }

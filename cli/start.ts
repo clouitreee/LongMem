@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 import { existsSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { DaemonClient } from "../shared/daemon-client.ts";
-
-const MEMORY_DIR = join(homedir(), ".longmem");
+import { MEMORY_DIR, BIN_DIR, LOGS_DIR, DEFAULT_HOST, DEFAULT_PORT } from "../shared/constants.ts";
 
 async function main(): Promise<void> {
   const client = new DaemonClient();
@@ -15,7 +13,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+  const binaryDaemon = join(BIN_DIR, "longmemd");
   const scriptDaemon = join(MEMORY_DIR, "daemon.js");
 
   let cmd: string[];
@@ -42,7 +40,7 @@ async function main(): Promise<void> {
   if (started) {
     console.log("Daemon started.");
   } else {
-    console.error("Error: Daemon failed to start. Check ~/.longmem/logs/daemon.log");
+    console.error(`Error: Daemon failed to start. Check ${LOGS_DIR}/daemon.log`);
     process.exit(1);
   }
 }

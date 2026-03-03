@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "fs";
-import { join, homedir } from "path";
-import { DEFAULT_PORT } from "./constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST, SETTINGS_PATH } from "./constants.ts";
 import type {
   ObserveRequest, PromptRequest, SessionStartRequest, SessionEndRequest,
   SearchResponse, ObservationResponse, TimelineResponse, HealthResponse,
@@ -9,9 +8,8 @@ import type {
 
 function loadPortFromConfig(): number {
   try {
-    const configPath = join(homedir(), ".longmem", "settings.json");
-    if (existsSync(configPath)) {
-      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (existsSync(SETTINGS_PATH)) {
+      const config = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
       if (typeof config?.daemon?.port === "number") {
         return config.daemon.port;
       }
@@ -20,16 +18,16 @@ function loadPortFromConfig(): number {
   return DEFAULT_PORT;
 }
 
-const DEFAULT_PORT = loadPortFromConfig();
-const SHORT_TIMEOUT = 2000;  // Fire-and-forget operations
-const SEARCH_TIMEOUT = 5000; // Search operations
-const CONTEXT_TIMEOUT = 1500; // Auto-context (must be fast)
+const PORT = loadPortFromConfig();
+const SHORT_TIMEOUT = 2000;
+const SEARCH_TIMEOUT = 5000;
+const CONTEXT_TIMEOUT = 1500;
 
 export class DaemonClient {
   private baseURL: string;
 
-  constructor(port = DEFAULT_PORT) {
-    this.baseURL = `http://127.0.0.1:${port}`;
+  constructor(port = PORT) {
+    this.baseURL = `http://${DEFAULT_HOST}:${port}`;
   }
 
   async health(): Promise<boolean> {
@@ -43,7 +41,6 @@ export class DaemonClient {
     }
   }
 
-  // Fire-and-forget: never throws, never blocks
   async observe(data: ObserveRequest): Promise<void> {
     try {
       await fetch(`${this.baseURL}/observe`, {
@@ -52,7 +49,7 @@ export class DaemonClient {
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
-    } catch { /* silent */ }
+    } catch {}
   }
 
   async prompt(data: PromptRequest): Promise<void> {
@@ -63,10 +60,9 @@ export class DaemonClient {
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
-    } catch { /* silent */ }
+    } catch {}
   }
 
-  // Save prompt AND get relevant context in one call
   async promptWithContext(data: PromptRequest): Promise<PromptContextResponse | null> {
     try {
       const res = await fetch(`${this.baseURL}/prompt`, {
@@ -90,7 +86,7 @@ export class DaemonClient {
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
-    } catch { /* silent */ }
+    } catch {}
   }
 
   async sessionEnd(data: SessionEndRequest): Promise<void> {
@@ -101,7 +97,7 @@ export class DaemonClient {
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
-    } catch { /* silent */ }
+    } catch {}
   }
 
   async search(query: string, project?: string, limit = 5): Promise<SearchResponse> {

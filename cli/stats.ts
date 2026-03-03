@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { DaemonClient } from "../shared/daemon-client.ts";
-import { DEFAULT_PORT } from "../shared/constants.ts";
+import { DEFAULT_HOST, DEFAULT_PORT } from "../shared/constants.ts";
 
 async function main(): Promise<void> {
   const client = new DaemonClient();
@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/stats`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/stats`, {
       signal: AbortSignal.timeout(5000),
     });
     

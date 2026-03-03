@@ -1,10 +1,6 @@
 #!/usr/bin/env bun
 import { writeFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
-import { DEFAULT_PORT } from "../shared/constants.ts";
-
-const MEMORY_DIR = join(homedir(), ".longmem");
+import { DEFAULT_HOST, DEFAULT_PORT } from "../shared/constants.ts";
 
 interface ExportOptions {
   project?: string;
@@ -80,7 +76,7 @@ export async function runExport(argv: string[]): Promise<void> {
   if (opts.includeRaw) params.set("include_raw", "true");
 
   try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/export?${params}`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/export?${params}`, {
       signal: AbortSignal.timeout(60000),
     });
 
