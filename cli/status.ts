@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { DaemonClient } from "../shared/daemon-client.ts";
 import { existsSync, readFileSync } from "fs";
-import { join, homedir } from "path";
+import { join } from "path";
+import { homedir } from "os";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 

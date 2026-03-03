@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "fs";
-import { join, homedir } from "path";
+import { join } from "path";
+import { homedir } from "os";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const LOG_FILE = join(MEMORY_DIR, "logs", "daemon.log");
