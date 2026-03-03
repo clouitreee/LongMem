@@ -1,46 +1,9 @@
 /**
  * Test: CLI export argument parsing and validation
- * Tests the parseArgs function and argument validation logic.
+ * Tests the parseArgs, validateDays, and printHelp functions.
  */
 import { describe, test, expect } from "bun:test";
-
-interface ExportOptions {
-  project?: string;
-  days?: number;
-  format?: "json" | "markdown";
-  includeRaw?: boolean;
-  output?: string;
-  help?: boolean;
-}
-
-function parseArgs(argv: string[]): ExportOptions {
-  const result: ExportOptions = {};
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-
-    if (arg === "--help" || arg === "-h") {
-      result.help = true;
-    } else if (arg === "--project" || arg === "-p") {
-      result.project = argv[++i];
-    } else if (arg === "--days" || arg === "-d") {
-      result.days = parseInt(argv[++i], 10);
-    } else if (arg === "--format" || arg === "-f") {
-      result.format = argv[++i] as "json" | "markdown";
-    } else if (arg === "--raw" || arg === "-r") {
-      result.includeRaw = true;
-    } else if (arg === "--output" || arg === "-o") {
-      result.output = argv[++i];
-    }
-  }
-
-  return result;
-}
-
-function validateDays(days: number | undefined): boolean {
-  if (days === undefined) return true;
-  return !isNaN(days) && days >= 1 && days <= 365;
-}
+import { parseArgs, validateDays, printHelp } from "../cli/export.ts";
 
 describe("cli/export parseArgs", () => {
   test("empty args returns empty object", () => {
@@ -143,23 +106,28 @@ describe("cli/export validateDays", () => {
   });
 });
 
-describe("cli/export help output", () => {
-  test("help string contains expected sections", () => {
-    const helpText = `
-longmem export - Export LongMem memory to JSON or Markdown
+describe("cli/export printHelp", () => {
+  test("printHelp executes without error", () => {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (msg: string) => { logs.push(msg); };
+    
+    printHelp();
+    
+    console.log = originalLog;
+    expect(logs.length).toBe(1);
+    expect(logs[0]).toContain("longmem export");
+  });
 
-Usage:
-  longmem export [options]
-
-Options:
-  -p, --project <name>   Filter by project name
-  -d, --days <n>         Only include last N days (max: 365)
-  -f, --format <fmt>     Output format: json (default) or markdown
-  -r, --raw              Include raw tool_input/tool_output
-  -o, --output <file>    Write to file instead of stdout
-  -h, --help             Show this help
-`;
-
+  test("help contains all options", () => {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (msg: string) => { logs.push(msg); };
+    
+    printHelp();
+    
+    console.log = originalLog;
+    const helpText = logs[0];
     expect(helpText).toContain("--project");
     expect(helpText).toContain("--days");
     expect(helpText).toContain("--format");

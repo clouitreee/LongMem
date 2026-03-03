@@ -2,7 +2,7 @@
 import { writeFileSync } from "fs";
 import { DEFAULT_HOST, DEFAULT_PORT } from "../shared/constants.ts";
 
-interface ExportOptions {
+export interface ExportOptions {
   project?: string;
   days?: number;
   format?: "json" | "markdown";
@@ -10,7 +10,12 @@ interface ExportOptions {
   output?: string;
 }
 
-function parseArgs(argv: string[]): ExportOptions & { help?: boolean } {
+export function validateDays(days: number | undefined): boolean {
+  if (days === undefined) return true;
+  return !isNaN(days) && days >= 1 && days <= 365;
+}
+
+export function parseArgs(argv: string[]): ExportOptions & { help?: boolean } {
   const result: ExportOptions & { help?: boolean } = {};
 
   for (let i = 0; i < argv.length; i++) {
@@ -34,7 +39,7 @@ function parseArgs(argv: string[]): ExportOptions & { help?: boolean } {
   return result;
 }
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`
 longmem export - Export LongMem memory to JSON or Markdown
 
@@ -64,7 +69,7 @@ export async function runExport(argv: string[]): Promise<void> {
     process.exit(0);
   }
 
-  if (opts.days && (isNaN(opts.days) || opts.days < 1 || opts.days > 365)) {
+  if (!validateDays(opts.days)) {
     console.error("Error: --days must be between 1 and 365");
     process.exit(1);
   }
@@ -115,4 +120,6 @@ export async function runExport(argv: string[]): Promise<void> {
   }
 }
 
-runExport(process.argv.slice(2));
+if (import.meta.main) {
+  runExport(process.argv.slice(2));
+}
