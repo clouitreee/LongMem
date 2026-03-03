@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { homedir, platform } from "os";
 import { loadConfig } from "./config.ts";
 import { getDB, runMigrations } from "./db.ts";
 import { CompressionSDK } from "./compression-sdk.ts";
@@ -175,7 +175,6 @@ setTimeout(() => worker.processQueue(), 5000);
 // ─── Service detection (for /status) ────────────────────────────────────────
 
 function isServiceManaged(): boolean {
-  const { platform } = require("os");
   const os = platform();
   if (os === "linux") {
     return existsSync(join(homedir(), ".config", "systemd", "user", "longmem.service"));

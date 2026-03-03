@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, renameSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
+import { createInterface } from "readline";
 import type { DetectedClient, DetectionResult } from "./detect.ts";
 
 const HOME = homedir();
@@ -32,7 +33,6 @@ async function askYesNo(question: string, defaultYes = true): Promise<boolean> {
   process.stdout.write(`  ${question} ${suffix}: `);
 
   return new Promise((resolve) => {
-    const { createInterface } = require("readline");
     const rl = createInterface({ input: process.stdin, terminal: false });
     rl.once("line", (line: string) => {
       rl.close();

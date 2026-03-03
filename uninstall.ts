@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, mkdirSync, readdirSync, renameSync, statSync, lstatSync } from "fs";
 import { join, basename } from "path";
 import { homedir, platform } from "os";
+import { createInterface } from "readline";
 import { decoupleClaudeCode, decoupleOpenCode } from "./shared/decouple.ts";
 import { DEFAULT_PORT } from "./shared/constants.ts";
 
@@ -48,7 +49,6 @@ async function askYesNo(question: string, defaultYes = false): Promise<boolean> 
   process.stdout.write(`  ${question} ${suffix}: `);
 
   return new Promise((resolve) => {
-    const { createInterface } = require("readline");
     const rl = createInterface({ input: process.stdin, terminal: false });
     rl.once("line", (line: string) => {
       rl.close();
