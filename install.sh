@@ -17,32 +17,39 @@ err()  { echo -e "${RED}✗${RESET} $*" >&2; }
 die()  { err "$*"; exit 1; }
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
+declare -a PASSTHROUGH_ARGS=()
 PASSTHROUGH_ARGS=("$@")
 
 # Detect --yes / -y to force headless
 HAS_YES=false
-for arg in "${PASSTHROUGH_ARGS[@]}"; do
-  case "$arg" in
-    --yes|-y) HAS_YES=true ;;
-  esac
-done
+if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
+  for arg in "${PASSTHROUGH_ARGS[@]}"; do
+    case "$arg" in
+      --yes|-y) HAS_YES=true ;;
+    esac
+  done
+fi
 
 # Detect dry-run
 HAS_DRY_RUN=false
-for arg in "${PASSTHROUGH_ARGS[@]}"; do
-  case "$arg" in
-    --dry-run) HAS_DRY_RUN=true ;;
-  esac
-done
+if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
+  for arg in "${PASSTHROUGH_ARGS[@]}"; do
+    case "$arg" in
+      --dry-run) HAS_DRY_RUN=true ;;
+    esac
+  done
+fi
 
 # Remove --tui/-t when forcing headless to avoid Bun TUI
 HEADLESS_ARGS=()
-for arg in "${PASSTHROUGH_ARGS[@]}"; do
-  case "$arg" in
-    --tui|-t) ;;
-    *) HEADLESS_ARGS+=("$arg") ;;
-  esac
-done
+if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
+  for arg in "${PASSTHROUGH_ARGS[@]}"; do
+    case "$arg" in
+      --tui|-t) ;;
+      *) HEADLESS_ARGS+=("$arg") ;;
+    esac
+  done
+fi
 
 json_escape() {
   local s="$1"
