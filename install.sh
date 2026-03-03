@@ -136,8 +136,10 @@ echo "Running setup..."
 echo ""
 if [[ ! -t 0 ]]; then
   if [[ -c /dev/tty ]]; then
-    # Piped from curl but terminal available — run TUI directly
-    "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"} < /dev/tty
+    # Piped from curl but terminal available — reassign stdin to tty
+    # Must use exec BEFORE running binary (Bun compiled binaries need proper raw mode)
+    exec < /dev/tty
+    "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
   else
     # No terminal (CI, Docker, etc.) — headless mode
     "${BIN_DIR}/longmem-cli" --yes ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
