@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir, platform, arch } from "os";
-import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, SETTINGS_PATH } from "./constants.ts";
+import { DEFAULT_HOST, MEMORY_DIR, BIN_DIR, SETTINGS_PATH } from "./constants.ts";
+import { getDaemonURL, loadPortFromConfig } from "./port-config.ts";
+import { parseJsonc } from "./jsonc-parser.ts";
 
 export interface DetectedClient {
   name: "claude-code" | "opencode";
@@ -129,18 +131,18 @@ async function detectOpenCode(): Promise<DetectedClient | null> {
 
   if (!binaryPath && !configDirExists) return null;
 
-  let configFile = join(configDir, "config.json");
+  // Priorizar opencode.jsonc según docs oficiales
+  let configFile = join(configDir, "opencode.jsonc");
   if (!existsSync(configFile)) {
-    const jsonc = join(configDir, "opencode.jsonc");
-    if (existsSync(jsonc)) configFile = jsonc;
+    configFile = join(configDir, "config.json");
   }
   const configExists = existsSync(configFile);
 
   let alreadyPatched = false;
   if (configExists) {
-    const config = safeReadJSON(configFile);
-    if (config) {
-      alreadyPatched = !!config.mcp?.longmem;
+    const result = parseJsonc(configFile);
+    if (result.ok) {
+      alreadyPatched = !!(result.data as Record<string, unknown>).mcp?.longmem;
     }
   }
 
@@ -172,7 +174,7 @@ async function detectDaemon(): Promise<DetectedDaemon> {
 
   let running = false;
   try {
-    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`, {
+    const res = await fetch(`${getDaemonURL()}/health`, {
       signal: AbortSignal.timeout(2000),
     });
     running = res.ok;

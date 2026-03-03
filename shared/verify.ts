@@ -2,8 +2,9 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { 
-  DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, HOOKS_DIR, SETTINGS_PATH, LOGS_DIR 
+  MEMORY_DIR, BIN_DIR, HOOKS_DIR, SETTINGS_PATH, LOGS_DIR 
 } from "./constants.ts";
+import { getDaemonURL } from "./port-config.ts";
 import { VERSION } from "./version.ts";
 
 const HOME = homedir();
@@ -21,15 +22,15 @@ interface VerifyResult {
 
 async function checkDaemon(): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`, {
+    const res = await fetch(`${getDaemonURL()}/health`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
     const health = (await res.json()) as any;
     const uptime = health.uptime != null ? `uptime ${Math.round(health.uptime)}s` : "";
-    return { ok: true, detail: `port ${DEFAULT_PORT}${uptime ? ", " + uptime : ""}` };
+    return { ok: true, detail: `responding${uptime ? ", " + uptime : ""}` };
   } catch {
-    return { ok: false, detail: `not responding on port ${DEFAULT_PORT}` };
+    return { ok: false, detail: "not responding" };
   }
 }
 

@@ -7,7 +7,8 @@
 import { DaemonClient } from "../shared/daemon-client.ts";
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { resolveProject } from "../shared/git-root.ts";
-import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR } from "../shared/constants.ts";
+import { MEMORY_DIR } from "../shared/constants.ts";
+import { getDaemonURL } from "../shared/port-config.ts";
 import { VERSION } from "../shared/version.ts";
 
 const daemon = new DaemonClient();
@@ -204,7 +205,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         if (format) params.set("format", String(format));
         if (include_raw) params.set("include_raw", "true");
 
-        const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/export?${params}`, {
+        const res = await fetch(`${getDaemonURL()}/export?${params}`, {
           signal: AbortSignal.timeout(30000),
         });
 

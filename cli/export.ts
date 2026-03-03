@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { writeFileSync } from "fs";
-import { DEFAULT_HOST, DEFAULT_PORT } from "../shared/constants.ts";
+import { getDaemonURL } from "../shared/port-config.ts";
 
 export interface ExportOptions {
   project?: string;
@@ -81,7 +81,7 @@ export async function runExport(argv: string[]): Promise<void> {
   if (opts.includeRaw) params.set("include_raw", "true");
 
   try {
-    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/export?${params}`, {
+    const res = await fetch(`${getDaemonURL()}/export?${params}`, {
       signal: AbortSignal.timeout(60000),
     });
 

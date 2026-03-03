@@ -1,33 +1,43 @@
 import { existsSync, readFileSync } from "fs";
-import { DEFAULT_PORT, DEFAULT_HOST, SETTINGS_PATH } from "./constants.ts";
+import { DEFAULT_HOST, SETTINGS_PATH } from "./constants.ts";
+import { loadPortFromConfig } from "./port-config.ts";
 import type {
   ObserveRequest, PromptRequest, SessionStartRequest, SessionEndRequest,
   SearchResponse, ObservationResponse, TimelineResponse, HealthResponse,
   PromptContextResponse,
 } from "./types.ts";
 
-function loadPortFromConfig(): number {
+function loadTokenFromConfig(): string | undefined {
   try {
     if (existsSync(SETTINGS_PATH)) {
       const config = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
-      if (typeof config?.daemon?.port === "number") {
-        return config.daemon.port;
-      }
+      return config?.daemon?.authToken;
     }
   } catch {}
-  return DEFAULT_PORT;
+  return undefined;
 }
 
 const PORT = loadPortFromConfig();
+const TOKEN = loadTokenFromConfig();
 const SHORT_TIMEOUT = 2000;
 const SEARCH_TIMEOUT = 5000;
 const CONTEXT_TIMEOUT = 1500;
 
 export class DaemonClient {
   private baseURL: string;
+  private token?: string;
 
-  constructor(port = PORT) {
+  constructor(port = PORT, token = TOKEN) {
     this.baseURL = `http://${DEFAULT_HOST}:${port}`;
+    this.token = token;
+  }
+
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+    return headers;
   }
 
   async health(): Promise<boolean> {
@@ -45,7 +55,7 @@ export class DaemonClient {
     try {
       await fetch(`${this.baseURL}/observe`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getHeaders(),
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
@@ -56,7 +66,7 @@ export class DaemonClient {
     try {
       await fetch(`${this.baseURL}/prompt`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getHeaders(),
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
@@ -67,7 +77,7 @@ export class DaemonClient {
     try {
       const res = await fetch(`${this.baseURL}/prompt`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getHeaders(),
         body: JSON.stringify({ ...data, with_context: true }),
         signal: AbortSignal.timeout(CONTEXT_TIMEOUT),
       });
@@ -82,7 +92,7 @@ export class DaemonClient {
     try {
       await fetch(`${this.baseURL}/session/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getHeaders(),
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
@@ -93,7 +103,7 @@ export class DaemonClient {
     try {
       await fetch(`${this.baseURL}/session/end`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getHeaders(),
         body: JSON.stringify(data),
         signal: AbortSignal.timeout(SHORT_TIMEOUT),
       });
@@ -104,6 +114,7 @@ export class DaemonClient {
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (project) params.set("project", project);
     const res = await fetch(`${this.baseURL}/search?${params}`, {
+      headers: this.getHeaders(),
       signal: AbortSignal.timeout(SEARCH_TIMEOUT),
     });
     return res.json();
@@ -111,6 +122,7 @@ export class DaemonClient {
 
   async getObservations(ids: number[]): Promise<ObservationResponse> {
     const res = await fetch(`${this.baseURL}/observation/${ids.join(",")}`, {
+      headers: this.getHeaders(),
       signal: AbortSignal.timeout(SEARCH_TIMEOUT),
     });
     return res.json();
@@ -119,6 +131,7 @@ export class DaemonClient {
   async timeline(id: number, before = 3, after = 3): Promise<TimelineResponse> {
     const params = new URLSearchParams({ before: String(before), after: String(after) });
     const res = await fetch(`${this.baseURL}/timeline/${id}?${params}`, {
+      headers: this.getHeaders(),
       signal: AbortSignal.timeout(SEARCH_TIMEOUT),
     });
     return res.json();

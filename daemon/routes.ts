@@ -65,7 +65,7 @@ export function createRoutes(
 
       // ── Fast-path: limit huge inputs before processing ──
       let rawInput = JSON.stringify(toolInput);
-      let rawOutput = String(body.tool_output || "");
+      rawOutput = String(body.tool_output || "");
 
       if (rawInput.length > 100_000) rawInput = rawInput.slice(0, 100_000);
       if (rawOutput.length > 100_000) rawOutput = rawOutput.slice(0, 100_000);

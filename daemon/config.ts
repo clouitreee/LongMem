@@ -33,6 +33,7 @@ export interface MemoryConfig {
     port: number;
     dbPath: string;
     logLevel: "debug" | "info" | "warn" | "error";
+    authToken?: string;
   };
   privacy: {
     redactSecrets: boolean;
@@ -82,6 +83,7 @@ const DEFAULTS: MemoryConfig = {
     port: DEFAULT_PORT,
     dbPath: DEFAULT_DB_PATH,
     logLevel: "warn",
+    authToken: undefined,
   },
   privacy: {
     redactSecrets: true,

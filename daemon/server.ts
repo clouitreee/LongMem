@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { loadConfig } from "./config.ts";
 import { getDB, runMigrations, closeDB } from "./db.ts";
@@ -11,6 +10,13 @@ import {
 } from "../shared/constants.ts";
 import { VERSION } from "../shared/version.ts";
 import { readPid, isProcessAlive, isServiceManaged } from "../shared/process-utils.ts";
+
+function checkAuth(req: Request, authToken?: string): boolean {
+  if (!authToken) return true;
+  const auth = req.headers.get("Authorization");
+  const token = auth?.replace(/^Bearer\s+/i, "");
+  return token === authToken;
+}
 
 async function checkExistingDaemon(port: number): Promise<{ alive: boolean; pid?: number; uptime?: number }> {
   try {
@@ -142,6 +148,12 @@ try {
       const method = req.method;
       const path = url.pathname;
 
+      // Auth check (except for public endpoints)
+      const publicPaths = ["/health"];
+      if (!publicPaths.includes(path) && !checkAuth(req, config.daemon.authToken)) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
       try {
         if (method === "GET" && path === "/health") return routes.handleHealth();
         if (method === "GET" && path === "/stats") return routes.handleStats();
@@ -229,6 +241,9 @@ try {
 console.log(`[longmem] Daemon started on http://${DEFAULT_HOST}:${config.daemon.port} (pid: ${process.pid})`);
 console.log(`[longmem] DB: ${config.daemon.dbPath}`);
 console.log(`[longmem] Compression: ${config.compression.enabled ? `${config.compression.model}` : "disabled"}`);
+if (!config.daemon.authToken) {
+  console.warn("[longmem] Warning: No auth token configured. API is open to local processes.");
+}
 
 function shutdown(): void {
   console.log("[longmem] Shutting down...");

@@ -19,6 +19,11 @@ const SKIP_TOOLS = new Set([
 ]);
 
 async function main(): Promise<void> {
+  // Dry-run mode: exit early without side effects
+  if (process.env.LONGMEM_DRY_RUN === "1") {
+    process.exit(0);
+  }
+
   const sessionId = process.env.CLAUDE_SESSION_ID || process.env.SESSION_ID || "cli-default";
   const directory = process.cwd();
   const project = resolveProject(directory);

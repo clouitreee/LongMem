@@ -8,6 +8,11 @@ import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { DaemonClient } from "../shared/daemon-client.ts";
 
 async function main(): Promise<void> {
+  // Dry-run mode: exit early
+  if (process.env.LONGMEM_DRY_RUN === "1") {
+    process.exit(0);
+  }
+
   const raw = await Bun.stdin.text();
   if (!raw.trim()) process.exit(0);
 

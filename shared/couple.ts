@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { createInterface } from "readline";
 import type { DetectedClient, DetectionResult } from "./detect.ts";
 import { MEMORY_DIR } from "./constants.ts";
+import { parseJsonc } from "./jsonc-parser.ts";
 
 const HOME = homedir();
 
@@ -86,13 +87,13 @@ function safeWriteJSON(filePath: string, data: object): void {
   renameSync(tmpPath, filePath);
 }
 
-function safeReadJSON(path: string): Record<string, any> {
-  try {
-    if (!existsSync(path)) return {};
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return {};
+function loadConfig(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  const result = parseJsonc(path);
+  if (!result.ok) {
+    throw new Error(`Failed to parse ${path}: ${result.error}`);
   }
+  return result.data;
 }
 
 // ─── Resolve Paths ──────────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ function patchClaudeCode(
   detection: DetectionResult,
   dryRun: boolean
 ): boolean {
-  const settings = safeReadJSON(client.configFile);
+  const settings = loadConfig(client.configFile);
   const { commands } = resolveHookEntries(detection);
   const mcp = resolveMCPCommand(detection);
 
@@ -200,7 +201,7 @@ function patchOpenCode(
   detection: DetectionResult,
   dryRun: boolean
 ): boolean {
-  const config = safeReadJSON(client.configFile);
+  const config = loadConfig(client.configFile);
   const mcp = resolveMCPCommand(detection);
 
   // MCP
