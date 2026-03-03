@@ -36,4 +36,6 @@ async function main(): Promise<void> {
   await client.observe({ session_id: sessionId, tool_name: toolName, tool_input: toolInput, tool_output: toolOutput, project, directory } as any);
 }
 
-main().catch(() => {}).finally(() => process.exit(0));
+import { logHookError } from "../shared/hook-logger.ts";
+
+main().catch((e) => logHookError("post-tool", e)).finally(() => process.exit(0));

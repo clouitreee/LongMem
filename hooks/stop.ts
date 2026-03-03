@@ -12,4 +12,6 @@ async function main(): Promise<void> {
   await client.sessionEnd({ session_id: sessionId });
 }
 
-main().catch(() => {}).finally(() => process.exit(0));
+import { logHookError } from "../shared/hook-logger.ts";
+
+main().catch((e) => logHookError("stop", e)).finally(() => process.exit(0));

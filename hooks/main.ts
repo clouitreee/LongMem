@@ -80,4 +80,6 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(() => {}).finally(() => process.exit(0));
+import { logHookError } from "../shared/hook-logger.ts";
+
+main().catch((e) => logHookError("main-hook", e)).finally(() => process.exit(0));

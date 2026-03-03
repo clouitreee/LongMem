@@ -1,10 +1,25 @@
+import { existsSync, readFileSync } from "fs";
+import { join, homedir } from "path";
 import type {
   ObserveRequest, PromptRequest, SessionStartRequest, SessionEndRequest,
   SearchResponse, ObservationResponse, TimelineResponse, HealthResponse,
   PromptContextResponse,
 } from "./types.ts";
 
-const DEFAULT_PORT = 38741;
+function loadPortFromConfig(): number {
+  try {
+    const configPath = join(homedir(), ".longmem", "settings.json");
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      if (typeof config?.daemon?.port === "number") {
+        return config.daemon.port;
+      }
+    }
+  } catch {}
+  return 38741;
+}
+
+const DEFAULT_PORT = loadPortFromConfig();
 const SHORT_TIMEOUT = 2000;  // Fire-and-forget operations
 const SEARCH_TIMEOUT = 5000; // Search operations
 const CONTEXT_TIMEOUT = 1500; // Auto-context (must be fast)
