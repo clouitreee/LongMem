@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, chmodSync, renameSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { DEFAULT_PORT } from "../shared/constants.ts";
 
 export type PrivacyMode = "safe" | "flexible" | "none";
 
@@ -76,7 +77,7 @@ const DEFAULTS: MemoryConfig = {
     maxRetries: 3,
   },
   daemon: {
-    port: 38741,
+    port: DEFAULT_PORT,
     dbPath: join(homedir(), ".longmem", "memory.db"),
     logLevel: "warn",
   },

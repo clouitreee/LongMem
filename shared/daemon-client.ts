@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join, homedir } from "path";
+import { DEFAULT_PORT } from "./constants.ts";
 import type {
   ObserveRequest, PromptRequest, SessionStartRequest, SessionEndRequest,
   SearchResponse, ObservationResponse, TimelineResponse, HealthResponse,
@@ -16,7 +17,7 @@ function loadPortFromConfig(): number {
       }
     }
   } catch {}
-  return 38741;
+  return DEFAULT_PORT;
 }
 
 const DEFAULT_PORT = loadPortFromConfig();

@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir, platform } from "os";
 import { DaemonClient } from "./daemon-client.ts";
+import { DEFAULT_PORT } from "./constants.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const PID_FILE = join(MEMORY_DIR, "daemon.pid");
-const DEFAULT_PORT = 38741;
 
 function isServiceManaged(): boolean {
   const os = platform();

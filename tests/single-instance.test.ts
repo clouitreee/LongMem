@@ -3,11 +3,11 @@
  * Validates that the daemon prevents double-start gracefully.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { DEFAULT_PORT } from "../shared/constants.ts";
 
-const DAEMON_PORT = 38741;
-const HEALTH_URL = `http://127.0.0.1:${DAEMON_PORT}/health`;
-const STATUS_URL = `http://127.0.0.1:${DAEMON_PORT}/status`;
-const SHUTDOWN_URL = `http://127.0.0.1:${DAEMON_PORT}/shutdown`;
+const HEALTH_URL = `http://127.0.0.1:${DEFAULT_PORT}/health`;
+const STATUS_URL = `http://127.0.0.1:${DEFAULT_PORT}/status`;
+const SHUTDOWN_URL = `http://127.0.0.1:${DEFAULT_PORT}/shutdown`;
 
 async function isDaemonRunning(): Promise<boolean> {
   try {

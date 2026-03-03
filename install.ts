@@ -20,6 +20,7 @@ import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
 import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
 import { runFullTui } from "./shared/tui.ts";
+import { DEFAULT_PORT } from "./shared/constants.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
@@ -91,7 +92,7 @@ if (detection.existingInstall) {
   if (detection.daemon.running) {
     console.log("  Stopping daemon for update...");
     try {
-      await fetch("http://127.0.0.1:38741/shutdown", {
+      await fetch(`http://127.0.0.1:${DEFAULT_PORT}/shutdown`, {
         method: "POST",
         signal: AbortSignal.timeout(2000),
       });
@@ -170,7 +171,7 @@ if (!flags.dryRun) {
         idleThresholdSeconds: 5,
         maxPerMinute: 10,
       },
-      daemon: { port: 38741 },
+      daemon: { port: DEFAULT_PORT },
       privacy: { redactSecrets: true },
     };
     writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
@@ -229,7 +230,7 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
   // Start daemon + verify
   if (!flags.dryRun) {
     try {
-      const healthRes = await fetch("http://127.0.0.1:38741/health", { signal: AbortSignal.timeout(1000) });
+      const healthRes = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, { signal: AbortSignal.timeout(1000) });
       if (healthRes.ok) console.log(`${GREEN}\u2713${RESET} Daemon already running`);
     } catch {
       const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
@@ -256,7 +257,7 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
       printEcosystemSummary(ecoscan);
       try {
         const payload = ecoscan.files.map(f => ({ path: f.path, content: f.content, hash: f.hash, source: f.source }));
-        const res = await fetch("http://127.0.0.1:38741/ecosystem/ingest", {
+        const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/ecosystem/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ files: payload }),

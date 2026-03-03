@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { DEFAULT_PORT } from "./constants.ts";
 
 const HOME = homedir();
 const MEMORY_DIR = join(HOME, ".longmem");
@@ -20,15 +21,15 @@ interface VerifyResult {
 
 async function checkDaemon(): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch("http://127.0.0.1:38741/health", {
+    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
     const health = (await res.json()) as any;
     const uptime = health.uptime != null ? `uptime ${Math.round(health.uptime)}s` : "";
-    return { ok: true, detail: `port 38741${uptime ? ", " + uptime : ""}` };
+    return { ok: true, detail: `port ${DEFAULT_PORT}${uptime ? ", " + uptime : ""}` };
   } catch {
-    return { ok: false, detail: "not responding on port 38741" };
+    return { ok: false, detail: `not responding on port ${DEFAULT_PORT}` };
   }
 }
 

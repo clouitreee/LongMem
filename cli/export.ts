@@ -2,9 +2,9 @@
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { DEFAULT_PORT } from "../shared/constants.ts";
 
 const MEMORY_DIR = join(homedir(), ".longmem");
-const DEFAULT_PORT = 38741;
 
 interface ExportOptions {
   project?: string;

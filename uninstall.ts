@@ -12,10 +12,10 @@ import { existsSync, readFileSync, mkdirSync, readdirSync, renameSync, statSync,
 import { join, basename } from "path";
 import { homedir, platform } from "os";
 import { decoupleClaudeCode, decoupleOpenCode } from "./shared/decouple.ts";
+import { DEFAULT_PORT } from "./shared/constants.ts";
 
 const HOME = homedir();
 const MEMORY_DIR = join(HOME, ".longmem");
-const DAEMON_PORT = 38741;
 
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
@@ -119,7 +119,7 @@ if (!flags.dryRun) {
 
   // Try HTTP shutdown first
   try {
-    const res = await fetch(`http://127.0.0.1:${DAEMON_PORT}/shutdown`, {
+    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/shutdown`, {
       method: "POST",
       signal: AbortSignal.timeout(2000),
     });
@@ -158,7 +158,7 @@ if (!flags.dryRun) {
 
   // Verify stopped
   try {
-    const res = await fetch(`http://127.0.0.1:${DAEMON_PORT}/health`, {
+    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     if (res.ok) {

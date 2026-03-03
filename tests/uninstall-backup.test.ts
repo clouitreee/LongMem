@@ -23,7 +23,7 @@ describe("uninstall backup behavior", () => {
 
     writeFileSync(join(fakeMemDir, "daemon.js"), "// daemon");
     writeFileSync(join(fakeMemDir, "mcp.js"), "// mcp");
-    writeFileSync(join(fakeMemDir, "settings.json"), '{"daemon":{"port":38741}}');
+    writeFileSync(join(fakeMemDir, "settings.json"), `{"daemon":{"port":38741}}`);
     writeFileSync(join(fakeMemDir, "memory.db"), "SQLITE_DB_CONTENTS");
     writeFileSync(join(fakeMemDir, "version"), "1.0.0");
     writeFileSync(join(fakeMemDir, "hooks", "post-tool.js"), "// hook");

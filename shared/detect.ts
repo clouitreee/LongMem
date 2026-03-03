@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir, platform, arch } from "os";
+import { DEFAULT_PORT } from "./constants.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ async function detectDaemon(): Promise<DetectedDaemon> {
   // Check if running
   let running = false;
   try {
-    const res = await fetch("http://127.0.0.1:38741/health", {
+    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, {
       signal: AbortSignal.timeout(2000),
     });
     running = res.ok;
