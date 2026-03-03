@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { LOGS_DIR } from "./constants.ts";
 
 const HOME = homedir();
 
@@ -82,9 +83,9 @@ function generateLaunchdPlist(execPath: string): string {
     <false/>
   </dict>
   <key>StandardOutPath</key>
-  <string>${join(HOME, ".longmem", "logs", "daemon.log")}</string>
+  <string>${join(LOGS_DIR, "daemon.log")}</string>
   <key>StandardErrorPath</key>
-  <string>${join(HOME, ".longmem", "logs", "daemon.err")}</string>
+  <string>${join(LOGS_DIR, "daemon.err")}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>

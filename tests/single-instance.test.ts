@@ -3,11 +3,11 @@
  * Validates that the daemon prevents double-start gracefully.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { DEFAULT_PORT } from "../shared/constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST } from "../shared/constants.ts";
 
-const HEALTH_URL = `http://127.0.0.1:${DEFAULT_PORT}/health`;
-const STATUS_URL = `http://127.0.0.1:${DEFAULT_PORT}/status`;
-const SHUTDOWN_URL = `http://127.0.0.1:${DEFAULT_PORT}/shutdown`;
+const HEALTH_URL = `http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`;
+const STATUS_URL = `http://${DEFAULT_HOST}:${DEFAULT_PORT}/status`;
+const SHUTDOWN_URL = `http://${DEFAULT_HOST}:${DEFAULT_PORT}/shutdown`;
 
 async function isDaemonRunning(): Promise<boolean> {
   try {
@@ -51,7 +51,7 @@ describe("single-instance daemon guard", () => {
     expect(data.status).toBe("ok");
     expect(typeof data.pid).toBe("number");
     expect(data.pid).toBeGreaterThan(0);
-    expect(data.port).toBe(DAEMON_PORT);
+    expect(data.port).toBe(DEFAULT_PORT);
     expect(typeof data.service_managed).toBe("boolean");
     expect(typeof data.version).toBe("string");
   });

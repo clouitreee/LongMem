@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { LOGS_DIR, MEMORY_DIR_NAME } from "../shared/constants.ts";
+import { LOGS_DIR } from "../shared/constants.ts";
 
 const LOG_FILE = join(LOGS_DIR, "daemon.log");
 

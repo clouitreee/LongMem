@@ -3,9 +3,9 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { createInterface } from "readline";
 import type { DetectedClient, DetectionResult } from "./detect.ts";
+import { MEMORY_DIR } from "./constants.ts";
 
 const HOME = homedir();
-const MEMORY_DIR = join(HOME, ".longmem");
 
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";

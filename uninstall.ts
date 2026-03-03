@@ -13,7 +13,7 @@ import { join, basename } from "path";
 import { homedir, platform } from "os";
 import { createInterface } from "readline";
 import { decoupleClaudeCode, decoupleOpenCode } from "./shared/decouple.ts";
-import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, MEMORY_DIR_NAME, PID_FILE } from "./shared/constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, MEMORY_DIR_NAME, PID_FILE, DEFAULT_DB_NAME } from "./shared/constants.ts";
 
 const HOME = homedir();
 
@@ -87,7 +87,7 @@ try {
   console.log("  Version: unknown");
 }
 
-const dbPath = join(MEMORY_DIR, "memory.db");
+const dbPath = join(MEMORY_DIR, DEFAULT_DB_NAME);
 if (existsSync(dbPath)) {
   try {
     const size = statSync(dbPath).size;
@@ -283,7 +283,7 @@ if (!flags.dryRun) {
     const entries = readdirSync(MEMORY_DIR);
     let moved = 0;
     for (const entry of entries) {
-      if (entry === "memory.db" || entry === "memory.db-wal" || entry === "memory.db-shm") {
+      if (entry === DEFAULT_DB_NAME || entry === `${DEFAULT_DB_NAME}-wal` || entry === `${DEFAULT_DB_NAME}-shm`) {
         continue; // Keep database files in place
       }
       const src = join(MEMORY_DIR, entry);
