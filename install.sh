@@ -19,6 +19,111 @@ die()  { err "$*"; exit 1; }
 # ─── Parse args ──────────────────────────────────────────────────────────────
 PASSTHROUGH_ARGS=("$@")
 
+# Detect --yes / -y to force headless
+HAS_YES=false
+for arg in "${PASSTHROUGH_ARGS[@]}"; do
+  case "$arg" in
+    --yes|-y) HAS_YES=true ;;
+  esac
+done
+
+# Detect dry-run
+HAS_DRY_RUN=false
+for arg in "${PASSTHROUGH_ARGS[@]}"; do
+  case "$arg" in
+    --dry-run) HAS_DRY_RUN=true ;;
+  esac
+done
+
+# Remove --tui/-t when forcing headless to avoid Bun TUI
+HEADLESS_ARGS=()
+for arg in "${PASSTHROUGH_ARGS[@]}"; do
+  case "$arg" in
+    --tui|-t) ;;
+    *) HEADLESS_ARGS+=("$arg") ;;
+  esac
+done
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '%s' "$s"
+}
+
+run_bash_wizard() {
+  local settings_path="${INSTALL_DIR}/settings.json"
+  local privacy_mode="safe"
+  local redact_secrets="true"
+  local auto_context="true"
+  local comp_enabled="false"
+  local comp_provider="openrouter"
+  local comp_model="meta-llama/llama-3.1-8b-instruct"
+  local comp_key=""
+
+  echo ""
+  echo "LongMem setup"
+  echo "-------------"
+
+  PS3="Privacy mode: "
+  select privacy in "Safe (recommended)" "Flexible" "None"; do
+    case "$privacy" in
+      "Safe (recommended)") privacy_mode="safe"; redact_secrets="true"; break ;;
+      "Flexible") privacy_mode="flexible"; redact_secrets="true"; break ;;
+      "None") privacy_mode="none"; redact_secrets="false"; break ;;
+    esac
+  done
+
+  read -r -p "Enable auto-context? [Y/n] " ac
+  if [[ -n "$ac" && ! "$ac" =~ ^[Yy]$ ]]; then
+    auto_context="false"
+  fi
+
+  read -r -p "Enable compression? [y/N] " comp
+  if [[ -n "$comp" && "$comp" =~ ^[Yy]$ ]]; then
+    comp_enabled="true"
+    PS3="Compression provider: "
+    select provider in "OpenRouter" "OpenAI" "Anthropic" "Local (Ollama/LM Studio)"; do
+      case "$provider" in
+        "OpenRouter") comp_provider="openrouter"; comp_model="meta-llama/llama-3.1-8b-instruct"; break ;;
+        "OpenAI") comp_provider="openai"; comp_model="gpt-4o-mini"; break ;;
+        "Anthropic") comp_provider="anthropic"; comp_model="claude-haiku-4-5-20251001"; break ;;
+        "Local (Ollama/LM Studio)") comp_provider="local"; comp_model="llama3.1:8b"; break ;;
+      esac
+    done
+
+    if [[ "$comp_provider" != "local" ]]; then
+      read -r -p "API key for $provider: " comp_key
+    fi
+  fi
+
+  if [[ -f "$settings_path" ]]; then
+    cp "$settings_path" "${settings_path}.bak"
+  fi
+
+  cat > "$settings_path" <<EOF
+{
+  "compression": {
+    "enabled": ${comp_enabled},
+    "provider": "${comp_provider}",
+    "model": "${comp_model}",
+    "apiKey": "$(json_escape "$comp_key")",
+    "maxConcurrent": 1,
+    "idleThresholdSeconds": 5,
+    "maxPerMinute": 10
+  },
+  "daemon": { "port": 38741 },
+  "privacy": {
+    "mode": "${privacy_mode}",
+    "redactSecrets": ${redact_secrets},
+    "customPatterns": []
+  },
+  "autoContext": { "enabled": ${auto_context} }
+}
+EOF
+  chmod 600 "$settings_path"
+}
+
 for arg in "$@"; do
   case "$arg" in
     --help|-h)
@@ -30,7 +135,6 @@ for arg in "$@"; do
       echo "  --no-service     Don't install systemd/launchd unit"
       echo "  --opencode       Also configure OpenCode"
       echo "  --all            Configure both Claude Code CLI and OpenCode"
-      echo "  --tui            Force interactive TUI wizard"
       exit 0 ;;
   esac
 done
@@ -129,25 +233,28 @@ echo ""
 echo "${LATEST_TAG:-unknown}" > "${INSTALL_DIR}/version"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Phase 3: Delegate to CLI binary (TUI or headless)
+# Phase 3: Delegate to CLI binary (wizard or headless)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 echo "Running setup..."
 echo ""
-if [[ ! -t 0 ]]; then
+if [[ "$HAS_YES" == "true" ]]; then
+  # Headless by explicit choice
+  "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+elif [[ "$HAS_DRY_RUN" == "true" ]]; then
+  # Dry-run should not write settings
+  "${BIN_DIR}/longmem-cli" --yes ${HEADLESS_ARGS[@]+"${HEADLESS_ARGS[@]}"}
+else
   if [[ -c /dev/tty ]]; then
-    # Piped from curl but terminal available — reassign stdin to tty
-    # Must use exec BEFORE running binary (Bun compiled binaries need proper raw mode)
+    # Use a simple bash wizard instead of Bun TUI
     exec < /dev/tty
-    "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+    run_bash_wizard
+    "${BIN_DIR}/longmem-cli" --yes ${HEADLESS_ARGS[@]+"${HEADLESS_ARGS[@]}"}
   else
     # No terminal (CI, Docker, etc.) — headless mode
-    "${BIN_DIR}/longmem-cli" --yes ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+    "${BIN_DIR}/longmem-cli" --yes ${HEADLESS_ARGS[@]+"${HEADLESS_ARGS[@]}"}
     echo ""
-    echo -e "${BOLD}To configure privacy, compression, and more:${RESET}"
-    echo "  ~/.longmem/bin/longmem-cli --tui"
+    echo -e "${BOLD}LongMem installed with defaults.${RESET}"
+    echo "Edit settings here: ${INSTALL_DIR}/settings.json"
     echo ""
-  fi
-else
-  "${BIN_DIR}/longmem-cli" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
 fi
