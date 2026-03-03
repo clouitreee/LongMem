@@ -19,7 +19,6 @@ import { runCoupleFlow } from "./shared/couple.ts";
 import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
 import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
-import { runFullTui } from "./shared/tui.ts";
 import { 
   DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, SETTINGS_PATH, VERSION_FILE 
 } from "./shared/constants.ts";
@@ -184,13 +183,13 @@ if (!flags.dryRun) {
 
 // ─── 4. Branch: TUI or Headless ─────────────────────────────────────────────
 
-if (!forceHeadless && (flags.tui || (!flags.yes && process.stdin.isTTY))) {
-  // Interactive: full TUI
-  await runFullTui({ detection, noService: flags.noService, dryRun: flags.dryRun });
-} else {
-  // Headless: couple + service + start + verify (no prompts)
-  await applyHeadless(detection, flags);
+if (flags.tui && !forceHeadless) {
+  console.log(`${YELLOW}  (TUI disabled in this installer build)${RESET}`);
+  console.log("  Use the bash wizard in install.sh or edit ~/.longmem/settings.json\n");
 }
+
+// Headless: couple + service + start + verify (no prompts)
+await applyHeadless(detection, flags);
 
 // ─── Headless Flow ──────────────────────────────────────────────────────────
 
