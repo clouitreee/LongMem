@@ -60,8 +60,8 @@ const TOOLS = [
       type: "object",
       properties: {
         observation_id: { type: "number", description: "Observation ID from mem_search results" },
-        before: { type: "number", description: "Observations to show before (default: 3)" },
-        after: { type: "number", description: "Observations to show after (default: 3)" },
+        before: { type: "number", description: "Observations to show before (default: 3, max: 10)" },
+        after: { type: "number", description: "Observations to show after (default: 3, max: 10)" },
       },
       required: ["observation_id"],
     },
@@ -75,7 +75,7 @@ const TOOLS = [
         ids: {
           type: "array",
           items: { type: "number" },
-          description: "Observation IDs to retrieve (from mem_search)",
+          description: "Observation IDs to retrieve (from mem_search, max: 20)",
         },
       },
       required: ["ids"],
@@ -96,6 +96,13 @@ const TOOLS = [
   },
 ];
 
+const MCP_LIMITS = {
+  searchLimit: 20,
+  timelineBeforeAfter: 10,
+  getIds: 20,
+  exportDays: 365,
+};
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<string> {
   const daemonUp = await ensureDaemonRunning();
 
@@ -106,9 +113,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   switch (name) {
     case "mem_search": {
       const { query, project, limit } = args;
+      const clampedLimit = Math.min(Math.max(1, Number(limit || 5)), MCP_LIMITS.searchLimit);
       try {
-        // Search globally by default — only filter by project if explicitly requested
-        const result = await daemon.search(String(query || ""), project as string | undefined, Number(limit || 5));
+        const result = await daemon.search(String(query || ""), project as string | undefined, clampedLimit);
 
         if (result.total === 0) return "No matching memories found.";
 
@@ -125,8 +132,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
 
     case "mem_timeline": {
       const id = Number(args.observation_id);
-      const before = Number(args.before || 3);
-      const after = Number(args.after || 3);
+      if (isNaN(id) || id <= 0) return "Invalid observation_id: must be a positive number.";
+      const before = Math.min(Math.max(0, Number(args.before || 3)), MCP_LIMITS.timelineBeforeAfter);
+      const after = Math.min(Math.max(0, Number(args.after || 3)), MCP_LIMITS.timelineBeforeAfter);
       try {
         const result = await daemon.timeline(id, before, after);
         const parts: string[] = [];
@@ -159,8 +167,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
     }
 
     case "mem_get": {
-      const ids = (args.ids as number[]) || [];
-      if (ids.length === 0) return "No IDs provided.";
+      const rawIds = (args.ids as number[]) || [];
+      if (rawIds.length === 0) return "No IDs provided.";
+      if (rawIds.length > MCP_LIMITS.getIds) return `Too many IDs: max ${MCP_LIMITS.getIds} allowed.`;
+      const ids = rawIds.filter(id => Number.isFinite(id) && id > 0);
+      if (ids.length === 0) return "No valid IDs provided.";
       try {
         const result = await daemon.getObservations(ids);
         if (result.observations.length === 0) return "No observations found for those IDs.";
@@ -180,7 +191,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
     }
 
     case "mem_export": {
-      const { project, days, format, include_raw } = args;
+      const { project, format, include_raw } = args;
+      const daysParam = args.days;
+      const days = daysParam ? Math.min(Math.max(1, Number(daysParam)), MCP_LIMITS.exportDays) : undefined;
+      if (daysParam && (isNaN(Number(daysParam)) || Number(daysParam) < 1 || Number(daysParam) > MCP_LIMITS.exportDays)) {
+        return `Invalid days: must be between 1 and ${MCP_LIMITS.exportDays}.`;
+      }
       try {
         const params = new URLSearchParams();
         if (project) params.set("project", String(project));

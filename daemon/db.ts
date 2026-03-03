@@ -6,6 +6,62 @@ import { VERSION } from "../shared/version.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
+export interface ObservationRow {
+  id: number;
+  tool_name: string;
+  tool_input: string;
+  tool_output: string;
+}
+
+export interface FullObservationRow {
+  id: number;
+  session_id: number;
+  tool_name: string;
+  tool_input: string;
+  tool_output: string;
+  compressed_summary: string | null;
+  observation_type: string | null;
+  files_referenced: string | null;
+  concepts: string | null;
+  prompt_number: number;
+  redaction_meta: string | null;
+  created_at: string;
+}
+
+export interface CompressionJobRow {
+  id: number;
+  observation_id: number;
+  attempts: number;
+}
+
+export interface SessionRow {
+  id: number;
+  opencode_session_id: string;
+  project: string;
+  directory: string;
+  first_user_prompt: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConceptRow {
+  id: number;
+  name: string;
+  frequency: number;
+  last_seen: string;
+}
+
+export interface UserObservationRow {
+  id: number;
+  observation_type: string;
+  content: string;
+  metadata: string | null;
+  created_at: string;
+  last_accessed: string;
+  access_count: number;
+}
+
 let db: Database | null = null;
 
 export function getDB(dbPath?: string): Database {
@@ -263,30 +319,28 @@ export function updateObservationSummary(
   } catch {}
 }
 
-export function getObservationById(id: number): {
-  id: number; tool_name: string; tool_input: string; tool_output: string;
-} | undefined {
-  return getDB().prepare("SELECT id, tool_name, tool_input, tool_output FROM observations WHERE id = ?").get(id) as any;
+export function getObservationById(id: number): ObservationRow | undefined {
+  return getDB().prepare("SELECT id, tool_name, tool_input, tool_output FROM observations WHERE id = ?").get(id) as ObservationRow | undefined;
 }
 
-export function getFullObservation(id: number): object | undefined {
-  return getDB().prepare("SELECT * FROM observations WHERE id = ?").get(id) as any;
+export function getFullObservation(id: number): FullObservationRow | undefined {
+  return getDB().prepare("SELECT * FROM observations WHERE id = ?").get(id) as FullObservationRow | undefined;
 }
 
-export function getFullObservations(ids: number[]): object[] {
+export function getFullObservations(ids: number[]): FullObservationRow[] {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(",");
-  return getDB().prepare(`SELECT * FROM observations WHERE id IN (${placeholders})`).all(...ids) as object[];
+  return getDB().prepare(`SELECT * FROM observations WHERE id IN (${placeholders})`).all(...ids) as FullObservationRow[];
 }
 
-export function getRecentObservations(project: string, limit = 20): object[] {
+export function getRecentObservations(project: string, limit = 20): FullObservationRow[] {
   return getDB().prepare(`
     SELECT o.* FROM observations o
     JOIN sessions s ON o.session_id = s.id
     WHERE s.project = ? AND o.compressed_summary IS NOT NULL
     ORDER BY o.created_at DESC
     LIMIT ?
-  `).all(project, limit) as object[];
+  `).all(project, limit) as FullObservationRow[];
 }
 
 export function queueCompression(obsId: number): void {
@@ -295,13 +349,13 @@ export function queueCompression(obsId: number): void {
   ).run(obsId);
 }
 
-export function getPendingCompressionJobs(limit = 1): Array<{ id: number; observation_id: number; attempts: number }> {
+export function getPendingCompressionJobs(limit = 1): CompressionJobRow[] {
   return getDB().prepare(`
     SELECT id, observation_id, attempts FROM compression_queue
     WHERE status = 'pending'
     ORDER BY created_at ASC
     LIMIT ?
-  `).all(limit) as any[];
+  `).all(limit) as CompressionJobRow[];
 }
 
 export function updateCompressionJob(id: number, status: string, error?: string): void {
@@ -353,10 +407,10 @@ export function saveUserObservation(type: string, content: string, metadata?: Re
   database.prepare("INSERT INTO user_observations_fts (id, content) VALUES (?, ?)").run(result.id, content);
 }
 
-export function getUserObservations(limit = 10): object[] {
+export function getUserObservations(limit = 10): UserObservationRow[] {
   return getDB().prepare(
     "SELECT * FROM user_observations ORDER BY access_count DESC, last_accessed DESC LIMIT ?"
-  ).all(limit) as object[];
+  ).all(limit) as UserObservationRow[];
 }
 
 export function getStats(): {
@@ -400,10 +454,10 @@ export interface ExportData {
   exported_at: string;
   version: string;
   options: ExportOptions;
-  sessions: object[];
-  observations: object[];
-  userObservations: object[];
-  concepts: object[];
+  sessions: SessionRow[];
+  observations: Partial<FullObservationRow>[];
+  userObservations: Partial<UserObservationRow>[];
+  concepts: Partial<ConceptRow>[];
 }
 
 export function exportMemory(opts: ExportOptions = {}): ExportData {
@@ -426,25 +480,25 @@ export function exportMemory(opts: ExportOptions = {}): ExportData {
 
   const sessions = database.prepare(
     `SELECT * FROM sessions${sessionWhere ? ` WHERE ${sessionWhere}` : ""} ORDER BY created_at DESC`
-  ).all(...sessionParams) as object[];
+  ).all(...sessionParams) as SessionRow[];
 
-  const sessionIds = sessions.map((s: any) => s.id);
+  const sessionIds = sessions.map((s) => s.id);
   const obsWhere = sessionIds.length > 0
     ? `session_id IN (${sessionIds.map(() => "?").join(",")})`
     : "1=0";
 
-  let observations = database.prepare(
+  const observations = database.prepare(
     `SELECT id, session_id, tool_name, ${includeRaw ? "tool_input, tool_output," : ""} compressed_summary, observation_type, files_referenced, concepts, created_at FROM observations WHERE ${obsWhere}${cutoff ? " AND created_at >= ?" : ""} ORDER BY created_at DESC`
-  ).all(...sessionIds, ...(cutoff ? [cutoff] : [])) as object[];
+  ).all(...sessionIds, ...(cutoff ? [cutoff] : [])) as Partial<FullObservationRow>[];
 
   const userObsWhere = cutoff ? "WHERE created_at >= ?" : "";
   const userObservations = database.prepare(
     `SELECT id, observation_type, content, metadata, created_at FROM user_observations ${userObsWhere} ORDER BY created_at DESC`
-  ).all(...(cutoff ? [cutoff] : [])) as object[];
+  ).all(...(cutoff ? [cutoff] : [])) as Partial<UserObservationRow>[];
 
   const concepts = database.prepare(
     "SELECT name, frequency, last_seen FROM concepts ORDER BY frequency DESC LIMIT 100"
-  ).all() as object[];
+  ).all() as Partial<ConceptRow>[];
 
   return {
     exported_at: new Date().toISOString(),

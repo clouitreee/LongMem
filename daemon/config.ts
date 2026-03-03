@@ -26,6 +26,7 @@ export interface MemoryConfig {
     timeoutSeconds: number;
     circuitBreakerThreshold: number;
     circuitBreakerCooldownMs: number;
+    circuitBreakerMaxCooldownMs: number;
     maxRetries: number;
   };
   daemon: {
@@ -74,6 +75,7 @@ const DEFAULTS: MemoryConfig = {
     timeoutSeconds: 30,
     circuitBreakerThreshold: 5,
     circuitBreakerCooldownMs: 60000,
+    circuitBreakerMaxCooldownMs: 300000,
     maxRetries: 3,
   },
   daemon: {

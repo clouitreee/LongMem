@@ -18,6 +18,7 @@ interface WorkerConfig {
   maxPerMinute: number;
   circuitBreakerThreshold: number;
   circuitBreakerCooldownMs: number;
+  circuitBreakerMaxCooldownMs: number;
   maxRetries: number;
 }
 
@@ -30,6 +31,7 @@ export class CompressionWorker {
   private processing = false;
   private consecutiveFailures = 0;
   private circuitOpen = false;
+  private circuitOpenCount = 0;
   private circuitTimer: ReturnType<typeof setTimeout> | null = null;
   private requestCount = 0;
   private requestWindowStart = Date.now();
@@ -116,6 +118,7 @@ export class CompressionWorker {
 
           updateCompressionJob(job.id, "completed");
           this.consecutiveFailures = 0;
+          this.circuitOpenCount = 0;
           this.recordRequest();
 
         } catch (error: any) {
@@ -168,12 +171,18 @@ export class CompressionWorker {
 
   private openCircuit(): void {
     this.circuitOpen = true;
+    this.circuitOpenCount++;
     if (this.circuitTimer) clearTimeout(this.circuitTimer);
+    
+    const baseDelay = this.config.circuitBreakerCooldownMs;
+    const maxDelay = this.config.circuitBreakerMaxCooldownMs || 300000;
+    const delay = Math.min(baseDelay * Math.pow(2, this.circuitOpenCount - 1), maxDelay);
+    
     this.circuitTimer = setTimeout(() => {
       this.circuitOpen = false;
       this.consecutiveFailures = 0;
       this.processQueue();
-    }, this.config.circuitBreakerCooldownMs);
+    }, delay);
   }
 
   pendingCount(): number {
