@@ -7,13 +7,15 @@ function stripJsonc(content: string): string {
     .replace(/,(\s*[}\]])/g, '$1');
 }
 
-export interface ParseResult {
-  ok: true;
-  data: Record<string, unknown>;
-} | {
-  ok: false;
-  error: string;
-}
+export type ParseResult =
+  | {
+      ok: true;
+      data: Record<string, unknown>;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 export function parseJsonc(path: string): ParseResult {
   try {
