@@ -8,12 +8,9 @@ import { CompressionSDK } from "./compression-sdk.ts";
 import { CompressionWorker } from "./compression-worker.ts";
 import { IdleDetector } from "./idle-detector.ts";
 import { createRoutes, json } from "./routes.ts";
-
-const MEMORY_DIR = join(homedir(), ".longmem");
-const PID_FILE = join(MEMORY_DIR, "daemon.pid");
-const LOG_DIR = join(MEMORY_DIR, "logs");
-
-// ─── Single-Instance Helpers ─────────────────────────────────────────────────
+import { 
+  MEMORY_DIR, PID_FILE, LOGS_DIR, VERSION_FILE, DEFAULT_HOST 
+} from "../shared/constants.ts";
 
 function readPid(): number | null {
   try {
@@ -27,7 +24,7 @@ function readPid(): number | null {
 
 function isProcessAlive(pid: number): boolean {
   try {
-    process.kill(pid, 0); // Signal 0 = existence check, no actual signal
+    process.kill(pid, 0);
     return true;
   } catch {
     return false;
@@ -35,9 +32,8 @@ function isProcessAlive(pid: number): boolean {
 }
 
 async function checkExistingDaemon(port: number): Promise<{ alive: boolean; pid?: number; uptime?: number }> {
-  // 1. Health endpoint is source of truth
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${port}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     if (res.ok) {
@@ -47,24 +43,18 @@ async function checkExistingDaemon(port: number): Promise<{ alive: boolean; pid?
     }
   } catch {}
 
-  // 2. Check stale PID file
   const pid = readPid();
   if (pid !== null) {
     if (isProcessAlive(pid)) {
-      // Process exists but health failed — might be starting up or different process
-      // Wait briefly and retry health
       await Bun.sleep(500);
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/health`, {
+        const res = await fetch(`http://${DEFAULT_HOST}:${port}/health`, {
           signal: AbortSignal.timeout(1000),
         });
         if (res.ok) return { alive: true, pid };
       } catch {}
-      // Process alive but not our daemon — stale PID from different process
-      // Clean up
       try { unlinkSync(PID_FILE); } catch {}
     } else {
-      // Process dead — clean stale PID
       try { unlinkSync(PID_FILE); } catch {}
     }
   }
@@ -72,14 +62,12 @@ async function checkExistingDaemon(port: number): Promise<{ alive: boolean; pid?
   return { alive: false };
 }
 
-// ─── CLI: --status ──────────────────────────────────────────────────────────
-
 async function printStatus(): Promise<void> {
   const config = loadConfig();
   const port = config.daemon.port;
 
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/status`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${port}/status`, {
       signal: AbortSignal.timeout(2000),
     });
     if (res.ok) {
@@ -96,9 +84,8 @@ async function printStatus(): Promise<void> {
     }
   } catch {}
 
-  // Fallback: check health
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${port}/health`, {
       signal: AbortSignal.timeout(2000),
     });
     if (res.ok) {
@@ -120,8 +107,6 @@ async function printStatus(): Promise<void> {
   }
 }
 
-// ─── CLI: handle flags ──────────────────────────────────────────────────────
-
 const cliArgs = process.argv.slice(2);
 
 if (cliArgs.includes("--status") || cliArgs.includes("status")) {
@@ -129,31 +114,24 @@ if (cliArgs.includes("--status") || cliArgs.includes("status")) {
   process.exit(0);
 }
 
-// ─── Ensure directories ─────────────────────────────────────────────────────
-
 if (!existsSync(MEMORY_DIR)) mkdirSync(MEMORY_DIR, { recursive: true, mode: 0o700 });
-if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+if (!existsSync(LOGS_DIR)) mkdirSync(LOGS_DIR, { recursive: true });
 
 const config = loadConfig();
-
-// ─── Single-Instance Guard ──────────────────────────────────────────────────
 
 const existing = await checkExistingDaemon(config.daemon.port);
 
 if (existing.alive) {
   console.log(`[longmem] Daemon already running (pid: ${existing.pid || "?"}, uptime: ${existing.uptime || "?"}s)`);
   console.log(`[longmem] To check status: bun daemon/server.ts --status`);
-  console.log(`[longmem] To stop: curl -X POST http://127.0.0.1:${config.daemon.port}/shutdown`);
-  process.exit(0); // Clean exit — not an error
+  console.log(`[longmem] To stop: curl -X POST http://${DEFAULT_HOST}:${config.daemon.port}/shutdown`);
+  process.exit(0);
 }
-
-// ─── Write PID + Initialize ─────────────────────────────────────────────────
 
 writeFileSync(PID_FILE, String(process.pid));
 
 runMigrations();
 
-// ── Privacy mode warning ──
 if (config.privacy.mode === "none") {
   console.warn("[longmem] WARNING: Privacy mode is 'none' — secrets will NOT be redacted before storage or compression");
 }
@@ -169,10 +147,7 @@ const idleDetector = new IdleDetector(
 );
 const routes = createRoutes(idleDetector, worker, config);
 
-// Process any jobs pending from previous sessions on startup
 setTimeout(() => worker.processQueue(), 5000);
-
-// ─── Service detection (for /status) ────────────────────────────────────────
 
 function isServiceManaged(): boolean {
   const os = platform();
@@ -185,13 +160,11 @@ function isServiceManaged(): boolean {
   return false;
 }
 
-// ─── HTTP Server ────────────────────────────────────────────────────────────
-
 let server: ReturnType<typeof Bun.serve>;
 
 try {
   server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: DEFAULT_HOST,
     port: config.daemon.port,
 
     async fetch(req: Request): Promise<Response> {
@@ -200,11 +173,9 @@ try {
       const path = url.pathname;
 
       try {
-        // Health & status
         if (method === "GET" && path === "/health") return routes.handleHealth();
         if (method === "GET" && path === "/stats") return routes.handleStats();
 
-        // Extended status (for --status CLI)
         if (method === "GET" && path === "/status") {
           return json({
             status: "ok",
@@ -216,21 +187,18 @@ try {
             idle_ms: idleDetector.timeSinceLastActivity(),
             service_managed: isServiceManaged(),
             version: (() => {
-              try { return readFileSync(join(MEMORY_DIR, "version"), "utf-8").trim(); }
+              try { return readFileSync(VERSION_FILE, "utf-8").trim(); }
               catch { return "unknown"; }
             })(),
           });
         }
 
-        // Graceful remote shutdown
         if (method === "POST" && path === "/shutdown") {
           console.log("[longmem] Shutdown requested via HTTP");
-          // Respond before shutting down
           setTimeout(() => shutdown(), 100);
           return json({ status: "shutting_down" });
         }
 
-        // Session management
         if (method === "POST" && path === "/session/start") {
           return routes.handleSessionStart(await req.json());
         }
@@ -238,7 +206,6 @@ try {
           return routes.handleSessionEnd(await req.json());
         }
 
-        // Observation capture
         if (method === "POST" && path === "/observe") {
           return routes.handleObserve(await req.json());
         }
@@ -246,12 +213,10 @@ try {
           return routes.handlePrompt(await req.json());
         }
 
-        // Ecosystem ingest
         if (method === "POST" && path === "/ecosystem/ingest") {
           return routes.handleEcosystemIngest(await req.json());
         }
 
-        // Search & retrieval
         if (method === "GET" && path === "/search") {
           return routes.handleSearch(url.searchParams);
         }
@@ -259,17 +224,14 @@ try {
           return routes.handleContext(url.searchParams);
         }
 
-        // Observation detail
         if (method === "GET" && path.startsWith("/observation/")) {
           return routes.handleGetObservation(path.slice("/observation/".length));
         }
 
-        // Timeline
         if (method === "GET" && path.startsWith("/timeline/")) {
           return routes.handleTimeline(path.slice("/timeline/".length), url.searchParams);
         }
 
-        // Export
         if (method === "GET" && path === "/export") {
           return routes.handleExport(url.searchParams);
         }
@@ -285,7 +247,6 @@ try {
     },
   });
 } catch (e: any) {
-  // Handle EADDRINUSE specifically
   if (e?.code === "EADDRINUSE" || e?.message?.includes("address already in use") || e?.message?.includes("EADDRINUSE")) {
     console.error(`[longmem] Port ${config.daemon.port} already in use (EADDRINUSE)`);
     console.error(`[longmem] Another process is using this port.`);
@@ -293,17 +254,14 @@ try {
     try { unlinkSync(PID_FILE); } catch {}
     process.exit(1);
   }
-  // Unknown error
   console.error(`[longmem] Failed to start server: ${e?.message || e}`);
   try { unlinkSync(PID_FILE); } catch {}
   process.exit(1);
 }
 
-console.log(`[longmem] Daemon started on http://127.0.0.1:${config.daemon.port} (pid: ${process.pid})`);
+console.log(`[longmem] Daemon started on http://${DEFAULT_HOST}:${config.daemon.port} (pid: ${process.pid})`);
 console.log(`[longmem] DB: ${config.daemon.dbPath}`);
 console.log(`[longmem] Compression: ${config.compression.enabled ? `${config.compression.model}` : "disabled"}`);
-
-// ─── Graceful Shutdown ──────────────────────────────────────────────────────
 
 function shutdown(): void {
   console.log("[longmem] Shutting down...");

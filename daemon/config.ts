@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync, chmodSync, renameSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { DEFAULT_PORT } from "../shared/constants.ts";
+import { DEFAULT_PORT, DEFAULT_DB_PATH, SETTINGS_PATH } from "../shared/constants.ts";
 
 export type PrivacyMode = "safe" | "flexible" | "none";
 
@@ -78,7 +78,7 @@ const DEFAULTS: MemoryConfig = {
   },
   daemon: {
     port: DEFAULT_PORT,
-    dbPath: join(homedir(), ".longmem", "memory.db"),
+    dbPath: DEFAULT_DB_PATH,
     logLevel: "warn",
   },
   privacy: {
@@ -106,25 +106,20 @@ function deepMerge<T>(defaults: T, overrides: Partial<T>): T {
 }
 
 export function loadConfig(): MemoryConfig {
-  const configPath = join(homedir(), ".longmem", "settings.json");
-
-  if (!existsSync(configPath)) return DEFAULTS;
+  if (!existsSync(SETTINGS_PATH)) return DEFAULTS;
 
   try {
-    const userConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+    const userConfig = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
     const merged = deepMerge(DEFAULTS, userConfig);
 
-    // Resolve baseURL from provider name
     if (!merged.compression.baseURL && merged.compression.provider in PROVIDERS) {
       merged.compression.baseURL = PROVIDERS[merged.compression.provider];
     }
 
-    // Backward compat: infer mode from legacy redactSecrets if mode not set
     if (!userConfig.privacy?.mode) {
       merged.privacy.mode = merged.privacy.redactSecrets ? "safe" : "none";
     }
 
-    // Validate mode
     if (!["safe", "flexible", "none"].includes(merged.privacy.mode)) {
       merged.privacy.mode = "safe";
     }
@@ -134,10 +129,6 @@ export function loadConfig(): MemoryConfig {
     return DEFAULTS;
   }
 }
-
-// ─── Raw settings (no defaults merged) ──────────────────────────────────────
-
-const SETTINGS_PATH = join(homedir(), ".longmem", "settings.json");
 
 export function loadSettings(): Record<string, any> {
   try {
@@ -149,13 +140,11 @@ export function loadSettings(): Record<string, any> {
 }
 
 export function saveConfig(settings: Record<string, any>): void {
-  // Backup with timestamp
   if (existsSync(SETTINGS_PATH)) {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     copyFileSync(SETTINGS_PATH, `${SETTINGS_PATH}.pre-config-${ts}.bak`);
   }
 
-  // Atomic write: tmp + rename
   const tmpPath = `${SETTINGS_PATH}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(settings, null, 2));
   renameSync(tmpPath, SETTINGS_PATH);

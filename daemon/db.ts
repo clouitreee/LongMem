@@ -1,9 +1,8 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
-import { homedir } from "os";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
+import { MEMORY_DIR, DEFAULT_DB_PATH } from "../shared/constants.ts";
 
-const DATA_DIR = join(homedir(), ".longmem");
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
 let db: Database | null = null;
@@ -11,7 +10,7 @@ let db: Database | null = null;
 export function getDB(dbPath?: string): Database {
   if (db) return db;
 
-  const path = dbPath || join(DATA_DIR, "memory.db");
+  const path = dbPath || DEFAULT_DB_PATH;
   const dir = path.substring(0, path.lastIndexOf("/"));
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -158,8 +157,6 @@ export function runMigrations(): void {
   }
 }
 
-// ─── Sessions ───────────────────────────────────────────────────────────────
-
 export function createSession(sessionId: string, project: string, directory: string): number | null {
   const database = getDB();
   const existing = database.prepare("SELECT id FROM sessions WHERE opencode_session_id = ?").get(sessionId) as { id: number } | undefined;
@@ -192,7 +189,6 @@ export function updateSessionPrompt(dbId: number, prompt: string): number {
   const promptNumber = count.n + 1;
   database.prepare("INSERT INTO user_prompts (session_id, prompt_number, prompt) VALUES (?, ?, ?)").run(dbId, promptNumber, prompt.slice(0, 2000));
 
-  // Update FTS
   database.prepare("INSERT INTO prompts_fts (id, prompt) VALUES (last_insert_rowid(), ?)").run(prompt.slice(0, 2000));
 
   return promptNumber;
@@ -204,8 +200,6 @@ export function getPromptCount(dbSessionId: number): number {
   ).get(dbSessionId) as { n: number };
   return result.n;
 }
-
-// ─── Observations ───────────────────────────────────────────────────────────
 
 export function saveObservation(
   sessionDbId: number,
@@ -221,7 +215,6 @@ export function saveObservation(
     VALUES (?, ?, ?, ?, ?, ?) RETURNING id
   `).get(sessionDbId, toolName, toolInput, toolOutput, promptNumber, redactionMeta ?? null) as { id: number };
 
-  // Index tool_output as fallback until compression provides a summary
   const outputSnippet = toolOutput.slice(0, 500);
   database.prepare("INSERT INTO observations_fts (id, tool_name, compressed_summary, files_referenced) VALUES (?, ?, ?, '')").run(result.id, toolName, outputSnippet);
 
@@ -248,7 +241,6 @@ export function updateObservationSummary(
     WHERE id = ?
   `).run(summary, type, filesStr, conceptsStr, obsId);
 
-  // Rebuild FTS entry
   try {
     database.prepare("DELETE FROM observations_fts WHERE id = ?").run(obsId);
     const row = database.prepare("SELECT tool_name FROM observations WHERE id = ?").get(obsId) as { tool_name: string } | undefined;
@@ -258,9 +250,7 @@ export function updateObservationSummary(
       summary,
       filesStr
     );
-  } catch {
-    // FTS update is best-effort — don't fail the main observation update
-  }
+  } catch {}
 }
 
 export function getObservationById(id: number): {
@@ -288,8 +278,6 @@ export function getRecentObservations(project: string, limit = 20): object[] {
     LIMIT ?
   `).all(project, limit) as object[];
 }
-
-// ─── Compression Queue ───────────────────────────────────────────────────────
 
 export function queueCompression(obsId: number): void {
   getDB().prepare(
@@ -321,8 +309,6 @@ export function resetFailedCompressionJobs(): void {
   `).run();
 }
 
-// ─── Concepts ────────────────────────────────────────────────────────────────
-
 export function upsertConcepts(concepts: string[]): void {
   const database = getDB();
   for (const name of concepts) {
@@ -342,8 +328,6 @@ export function linkObservationConcepts(obsId: number, concepts: string[]): void
     }
   }
 }
-
-// ─── User Observations ───────────────────────────────────────────────────────
 
 export function saveUserObservation(type: string, content: string, metadata?: Record<string, unknown>): void {
   const database = getDB();
@@ -365,8 +349,6 @@ export function getUserObservations(limit = 10): object[] {
   ).all(limit) as object[];
 }
 
-// ─── Stats ───────────────────────────────────────────────────────────────────
-
 export function getStats(): {
   totalSessions: number;
   totalObservations: number;
@@ -383,8 +365,6 @@ export function getStats(): {
     pendingCompressions: (database.prepare("SELECT COUNT(*) as n FROM compression_queue WHERE status = 'pending'").get() as { n: number }).n,
   };
 }
-
-// ─── GC ──────────────────────────────────────────────────────────────────────
 
 export function runGarbageCollection(maxAgeDays = 90): { observationsDeleted: number; sessionsDeleted: number } {
   const database = getDB();
