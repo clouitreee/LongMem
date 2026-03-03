@@ -118,3 +118,5 @@ export async function runExport(argv: string[]): Promise<void> {
     process.exit(1);
   }
 }
+
+runExport(process.argv.slice(2));

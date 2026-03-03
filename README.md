@@ -53,31 +53,56 @@ The setup wizard launches automatically — no JSON editing needed:
 ├────────────────────────────────────────────────────╯
 │
 ◇  Privacy mode
-│  Safe (recommended)
+│  ○ Safe (recommended) — redacts secrets, blocks sensitive files
+│  ○ Flexible — same as safe + custom redaction patterns
+│  ○ None — no redaction
 │
-◇  Enable auto-context? … Yes
-◇  Apply client configuration? … Yes
-◇  Install system service? … Yes
-◇  Enable compression? … Yes
+◇  Enable auto-context? (injects relevant memories at session start)
+│  Yes
 │
-◇  Indexed 6 file(s) into memory
+◇  Client Configuration
+│  Claude Code CLI: ~/.claude/settings.json
+│  This adds LongMem hooks and MCP server to your config.
+│  Apply client configuration? Yes
 │
-◇  Found 5 Claude Code auto-memory file(s) ─────────╮
-│    ~/.claude/projects/.../memory/MEMORY.md         │
-│    ~/.claude/projects/.../memory/history.md         │
-│    ~/.claude/projects/.../memory/security.md        │
-├────────────────────────────────────────────────────╯
+◇  Install system service for daemon auto-start on login?
+│  Yes
 │
-◆  LongMem replaces Claude Code's built-in memory.
-│  Remove these auto-memory files?
-│  ● Keep them
-│  ○ Remove all (already indexed into LongMem)
+◇  Enable compression? (generates summaries for smarter search)
+│  Yes
 │
-◇  All checks passed
+◇  Compression provider
+│  ○ OpenRouter (cheapest, many models)
+│  ○ OpenAI (reliable)
+│  ○ Anthropic (via Anthropic API)
+│  ○ Local (Ollama/LM Studio) — free, no API key needed
+│
+◇  API key for OpenRouter
+│  ••••••••••••••••
+│
+◇  Verification complete
 │  ✓ Daemon health
 │  ✓ Hook binary
 │  ✓ MCP server
 │  ✓ Config paths
+│
+◇  Indexed 6 file(s) into memory
+│
+◇  Found 3 Claude Code auto-memory file(s) ──────────────────────╮
+│    ~/.claude/projects/.../memory/MEMORY.md (2.1KB)              │
+│    ~/.claude/projects/.../memory/history.md (1.4KB)             │
+├────────────────────────────────────────────────────────────────╯
+│
+◇  LongMem replaces Claude Code's built-in memory.
+│  Remove these auto-memory files?
+│  ● Keep them
+│  ○ Remove all (content already indexed into LongMem)
+│
+◇  Configuration Summary ───────────────────────────╮
+│    Privacy: safe                                   │
+│    Auto-context: on                                │
+│    Compression: openrouter                         │
+├────────────────────────────────────────────────────╯
 │
 └  LongMem is ready! Changes take effect in your next session.
 ```
@@ -100,8 +125,18 @@ If you prefer to build it yourself (requires [Bun](https://bun.sh)):
 
 ```bash
 git clone https://github.com/clouitreee/LongMem.git && cd LongMem
-bun install && bun run build
+bun install
+bun run build            # Build JS modules (daemon.js, mcp.js, hooks/*.js)
+bun run build:binaries   # Build monolith binary (optional, for single-file install)
 bun run install.ts
+```
+
+Or skip the monolith and run directly from source:
+
+```bash
+bun install && bun run build
+bun run daemon/server.ts  # Start daemon
+bun run mcp/server.ts     # Run MCP server
 ```
 
 ---
@@ -135,6 +170,27 @@ You can also search your memory anytime:
 You: what did I change in the auth module last week?
 You: how did I fix the Docker build?
 You: what was that regex I used for email validation?
+```
+
+### Export your memory
+
+Back up or share your memory using the export command:
+
+```bash
+# Export everything to JSON
+~/.longmem/bin/longmem export > backup.json
+
+# Export last 30 days as Markdown
+~/.longmem/bin/longmem export --format markdown --days 30 > report.md
+
+# Export a specific project
+~/.longmem/bin/longmem export --project myapp -o myapp-memory.json
+```
+
+Or ask your assistant to do it:
+
+```
+You: export my last week of work on this project
 ```
 
 ### Improve search with compression (optional)
@@ -282,6 +338,12 @@ Memory builds up as you work. Use Claude Code or OpenCode for a session first, t
 # Check if it's running
 curl -s http://127.0.0.1:38741/health
 
+# Start it (binary install)
+~/.longmem/bin/longmem daemon
+
+# Start it (from source)
+bun ~/.longmem/daemon.js
+
 # Restart it (Linux)
 systemctl --user restart longmem
 
@@ -323,19 +385,35 @@ A small background service (`longmemd`) runs on your machine. It captures activi
 ```
 Your editor  -->  longmemd (local)  -->  ~/.longmem/memory.db
                        |
-                  MCP tools: mem_search, mem_get, mem_timeline
+                  MCP tools: mem_search, mem_get, mem_timeline, mem_export
 ```
 
 ### File layout
 
+**Binary install (recommended):**
+```
+~/.longmem/
+  memory.db       <- your memories (SQLite)
+  settings.json   <- configuration
+  version         <- installed version
+  bin/
+    longmem       <- monolith binary (everything in one)
+    longmemd      -> longmem (symlink)
+    longmem-mcp   -> longmem (symlink)
+    longmem-hook  -> longmem (symlink)
+    longmem-cli   -> longmem (symlink)
+  logs/
+```
+
+**From source install:**
 ```
 ~/.longmem/
   memory.db       <- your memories (SQLite)
   settings.json   <- configuration
   daemon.js       <- memory service
   mcp.js          <- search tools
-  hooks/          <- activity capture
-  bin/            <- longmem (monolith) + symlinks (longmemd, longmem-mcp, longmem-hook, longmem-cli)
+  hooks/          <- activity capture (post-tool.js, prompt.js, stop.js)
+  bin/            <- longmem monolith + symlinks (if build:binaries ran)
   logs/
 ```
 
