@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { 
   DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, HOOKS_DIR, SETTINGS_PATH, LOGS_DIR 
 } from "./constants.ts";
+import { VERSION } from "./version.ts";
 
 const HOME = homedir();
 const GREEN = "\x1b[32m";
@@ -82,7 +83,7 @@ async function checkMCPServer(): Promise<{ ok: boolean; detail: string }> {
       params: {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "longmem-verify", version: "1.0.0" },
+        clientInfo: { name: "longmem-verify", version: VERSION },
       },
     });
 

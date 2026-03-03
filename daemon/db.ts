@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "path";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { MEMORY_DIR, DEFAULT_DB_PATH } from "../shared/constants.ts";
+import { VERSION } from "../shared/version.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
@@ -438,7 +439,7 @@ export function exportMemory(opts: ExportOptions = {}): ExportData {
 
   return {
     exported_at: new Date().toISOString(),
-    version: "1.0.0",
+    version: VERSION,
     options: opts,
     sessions,
     observations,

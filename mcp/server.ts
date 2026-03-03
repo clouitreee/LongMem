@@ -8,6 +8,7 @@ import { DaemonClient } from "../shared/daemon-client.ts";
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { resolveProject } from "../shared/git-root.ts";
 import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR } from "../shared/constants.ts";
+import { VERSION } from "../shared/version.ts";
 
 const daemon = new DaemonClient();
 const currentProject = resolveProject(process.cwd());
@@ -245,7 +246,7 @@ process.stdin.on("data", async (chunk: string) => {
         respond(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "longmem", version: "1.0.0" },
+          serverInfo: { name: "longmem", version: VERSION },
         });
         break;
 

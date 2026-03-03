@@ -9,8 +9,9 @@ import { CompressionWorker } from "./compression-worker.ts";
 import { IdleDetector } from "./idle-detector.ts";
 import { createRoutes, json } from "./routes.ts";
 import { 
-  MEMORY_DIR, PID_FILE, LOGS_DIR, VERSION_FILE, DEFAULT_HOST 
+  MEMORY_DIR, PID_FILE, LOGS_DIR, DEFAULT_HOST 
 } from "../shared/constants.ts";
+import { VERSION } from "../shared/version.ts";
 
 function readPid(): number | null {
   try {
@@ -186,10 +187,7 @@ try {
             circuit_open: worker.isCircuitOpen(),
             idle_ms: idleDetector.timeSinceLastActivity(),
             service_managed: isServiceManaged(),
-            version: (() => {
-              try { return readFileSync(VERSION_FILE, "utf-8").trim(); }
-              catch { return "unknown"; }
-            })(),
+            version: VERSION,
           });
         }
 

@@ -267,12 +267,14 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
       } catch {}
     }
 
-    // Write version file
-    try {
-      const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
-      writeFileSync(VERSION_FILE, pkg.version || "1.0.0");
-    } catch {
-      writeFileSync(VERSION_FILE, "1.0.0");
+    // Write version file only if not already set by install.sh
+    if (!existsSync(VERSION_FILE)) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
+        writeFileSync(VERSION_FILE, pkg.version || "dev");
+      } catch {
+        writeFileSync(VERSION_FILE, "dev");
+      }
     }
   } else {
     console.log(`\n${YELLOW}(dry-run complete \u2014 no changes were made)${RESET}\n`);

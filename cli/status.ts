@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { DaemonClient } from "../shared/daemon-client.ts";
 import { existsSync } from "fs";
-import { MEMORY_DIR, VERSION_FILE, DEFAULT_DB_PATH } from "../shared/constants.ts";
+import { DEFAULT_DB_PATH } from "../shared/constants.ts";
+import { VERSION } from "../shared/version.ts";
 
 async function main(): Promise<void> {
   const client = new DaemonClient();
@@ -9,11 +10,7 @@ async function main(): Promise<void> {
   const healthy = await client.health();
   
   console.log(`Daemon: ${healthy ? "running" : "stopped"}`);
-  
-  if (existsSync(VERSION_FILE)) {
-    const { readFileSync } = await import("fs");
-    console.log(`Version: ${readFileSync(VERSION_FILE, "utf-8").trim()}`);
-  }
+  console.log(`Version: ${VERSION}`);
   
   if (existsSync(DEFAULT_DB_PATH)) {
     const stats = Bun.file(DEFAULT_DB_PATH).size;

@@ -1,6 +1,5 @@
 import { basename } from "path";
-import { existsSync, readFileSync } from "fs";
-import { VERSION_FILE } from "./shared/constants.ts";
+import { VERSION } from "./shared/version.ts";
 
 const binName = basename(process.argv[1] || process.argv[0]);
 
@@ -35,11 +34,7 @@ Examples:
 }
 
 function printVersion(): void {
-  if (existsSync(VERSION_FILE)) {
-    console.log(readFileSync(VERSION_FILE, "utf-8").trim());
-  } else {
-    console.log("dev");
-  }
+  console.log(VERSION);
 }
 
 switch (binName) {
