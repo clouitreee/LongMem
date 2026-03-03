@@ -2,10 +2,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir, platform } from "os";
 import { DaemonClient } from "./daemon-client.ts";
-import { DEFAULT_PORT } from "./constants.ts";
-
-const MEMORY_DIR = join(homedir(), ".longmem");
-const PID_FILE = join(MEMORY_DIR, "daemon.pid");
+import { DEFAULT_PORT, MEMORY_DIR, PID_FILE, BIN_DIR } from "./constants.ts";
 
 function isServiceManaged(): boolean {
   const os = platform();
@@ -46,29 +43,24 @@ export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean>
 
   if (await client.health()) return true;
 
-  // If systemd/launchd manages daemon, wait longer (it may be restarting)
   if (isServiceManaged()) {
     for (let i = 0; i < 10; i++) {
       await Bun.sleep(500);
       if (await client.health()) return true;
     }
-    return false; // Let service manager handle it
+    return false;
   }
 
-  // Check PID file — if process is alive, it might be starting up
   const existingPid = readPid();
   if (existingPid !== null && isProcessAlive(existingPid)) {
-    // Process exists but health check failed. Wait for it.
     for (let i = 0; i < 6; i++) {
       await Bun.sleep(500);
       if (await client.health()) return true;
     }
-    // Still not responding — don't spawn a second instance
     return false;
   }
 
-  // No daemon running — spawn one
-  const binaryPath = join(MEMORY_DIR, "bin", "longmemd");
+  const binaryPath = join(BIN_DIR, "longmemd");
   const scriptPath = join(MEMORY_DIR, "daemon.js");
 
   let cmd: string[];
@@ -78,7 +70,7 @@ export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean>
     const bunPath = Bun.which("bun") || join(homedir(), ".bun", "bin", "bun");
     cmd = [bunPath, "run", scriptPath];
   } else {
-    return false; // Not installed
+    return false;
   }
 
   try {
@@ -88,7 +80,6 @@ export async function ensureDaemonRunning(port = DEFAULT_PORT): Promise<boolean>
       env: { ...process.env },
     });
 
-    // Wait up to 3s for daemon to start
     for (let i = 0; i < 6; i++) {
       await Bun.sleep(500);
       if (await client.health()) return true;

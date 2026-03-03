@@ -1,10 +1,11 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { DEFAULT_PORT } from "./constants.ts";
+import { 
+  DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, HOOKS_DIR, SETTINGS_PATH, LOGS_DIR 
+} from "./constants.ts";
 
 const HOME = homedir();
-const MEMORY_DIR = join(HOME, ".longmem");
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
@@ -17,11 +18,9 @@ interface VerifyResult {
   allPassed: boolean;
 }
 
-// ─── Daemon Health ──────────────────────────────────────────────────────────
-
 async function checkDaemon(): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`, {
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return { ok: false, detail: `HTTP ${res.status}` };
@@ -33,12 +32,9 @@ async function checkDaemon(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
-// ─── Hook Binary ────────────────────────────────────────────────────────────
-
 async function checkHookBinary(): Promise<{ ok: boolean; detail: string }> {
-  // Try binary first, then bun script
-  const binaryPath = join(MEMORY_DIR, "bin", "longmem-hook");
-  const scriptPath = join(MEMORY_DIR, "hooks", "post-tool.js");
+  const binaryPath = join(BIN_DIR, "longmem-hook");
+  const scriptPath = join(HOOKS_DIR, "post-tool.js");
 
   let cmd: string[];
   if (existsSync(binaryPath)) {
@@ -58,17 +54,14 @@ async function checkHookBinary(): Promise<{ ok: boolean; detail: string }> {
       env: { ...process.env, LONGMEM_DRY_RUN: "1" },
     });
     const code = await proc.exited;
-    // Exit code 0 or 1 are both acceptable (1 = no data, but binary works)
     return { ok: code <= 1, detail: `exits ${code}` };
   } catch (e: any) {
     return { ok: false, detail: e.message };
   }
 }
 
-// ─── MCP Server ─────────────────────────────────────────────────────────────
-
 async function checkMCPServer(): Promise<{ ok: boolean; detail: string }> {
-  const binaryPath = join(MEMORY_DIR, "bin", "longmem-mcp");
+  const binaryPath = join(BIN_DIR, "longmem-mcp");
   const scriptPath = join(MEMORY_DIR, "mcp.js");
 
   let cmd: string[];
@@ -112,7 +105,6 @@ async function checkMCPServer(): Promise<{ ok: boolean; detail: string }> {
     const output = await new Response(proc.stdout).text();
     clearTimeout(timer);
 
-    // Count tools from the response
     const toolsMatch = output.match(/"tools"\s*:\s*\[/);
     if (toolsMatch) {
       const toolNames = output.match(/"name"\s*:\s*"mem_/g) || [];
@@ -125,14 +117,9 @@ async function checkMCPServer(): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
-// ─── Config Paths ───────────────────────────────────────────────────────────
-
 function checkConfigPaths(): { ok: boolean; detail: string } {
   const required = [MEMORY_DIR];
-  const optional = [
-    join(MEMORY_DIR, "settings.json"),
-    join(MEMORY_DIR, "logs"),
-  ];
+  const optional = [SETTINGS_PATH, LOGS_DIR];
 
   for (const p of required) {
     if (!existsSync(p)) return { ok: false, detail: `missing ${p}` };
@@ -145,8 +132,6 @@ function checkConfigPaths(): { ok: boolean; detail: string } {
 
   return { ok: true, detail: "all resolve" };
 }
-
-// ─── Main Export ────────────────────────────────────────────────────────────
 
 export async function verifyInstallation(): Promise<VerifyResult> {
   console.log("── Verification ─────────────────────────────────────────\n");

@@ -13,10 +13,9 @@ import { join, basename } from "path";
 import { homedir, platform } from "os";
 import { createInterface } from "readline";
 import { decoupleClaudeCode, decoupleOpenCode } from "./shared/decouple.ts";
-import { DEFAULT_PORT } from "./shared/constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, MEMORY_DIR_NAME, PID_FILE } from "./shared/constants.ts";
 
 const HOME = homedir();
-const MEMORY_DIR = join(HOME, ".longmem");
 
 const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
@@ -117,9 +116,8 @@ console.log("── Step 1: Stop daemon ─────────────�
 if (!flags.dryRun) {
   let stopped = false;
 
-  // Try HTTP shutdown first
   try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/shutdown`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/shutdown`, {
       method: "POST",
       signal: AbortSignal.timeout(2000),
     });
@@ -131,14 +129,12 @@ if (!flags.dryRun) {
   } catch {}
 
   if (!stopped) {
-    // Try PID file
-    const pidFile = join(MEMORY_DIR, "daemon.pid");
-    if (existsSync(pidFile)) {
+    if (existsSync(PID_FILE)) {
       try {
-        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
         if (pid > 0) {
           try {
-            process.kill(pid, 15); // SIGTERM
+            process.kill(pid, 15);
             console.log(`  ${GREEN}✓${RESET} Sent SIGTERM to pid ${pid}`);
             await Bun.sleep(1000);
             stopped = true;
@@ -158,7 +154,7 @@ if (!flags.dryRun) {
 
   // Verify stopped
   try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, {
+    const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`, {
       signal: AbortSignal.timeout(1000),
     });
     if (res.ok) {

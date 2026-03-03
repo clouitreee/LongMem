@@ -14,10 +14,9 @@ import { verifyInstallation } from "./verify.ts";
 import { scanEcosystem } from "./ecosystem.ts";
 import { loadSettings, saveConfig, PROVIDERS } from "../daemon/config.ts";
 import type { PrivacyMode } from "../daemon/config.ts";
-import { DEFAULT_PORT } from "./constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR } from "./constants.ts";
 
 const HOME = homedir();
-const MEMORY_DIR = join(HOME, ".longmem");
 
 // ─── Provider definitions for compression ────────────────────────────────────
 
@@ -57,17 +56,15 @@ function resolveDaemonExec(detection: DetectionResult): string | null {
 }
 
 async function restartDaemon(detection: DetectionResult): Promise<void> {
-  // Try graceful shutdown first
   try {
-    await fetch(`http://127.0.0.1:${DEFAULT_PORT}/shutdown`, {
+    await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/shutdown`, {
       method: "POST",
       signal: AbortSignal.timeout(2000),
     });
     await Bun.sleep(1000);
   } catch {}
 
-  // Start daemon
-  const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+  const binaryDaemon = join(BIN_DIR, "longmemd");
   const scriptDaemon = join(MEMORY_DIR, "daemon.js");
   let cmd: string[];
   if (existsSync(binaryDaemon)) {
@@ -387,7 +384,7 @@ export async function runFullTui(options: TuiOptions = {}): Promise<void> {
         const payload = ecoscan.files.map(f => ({
           path: f.path, content: f.content, hash: f.hash, source: f.source,
         }));
-        const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/ecosystem/ingest`, {
+        const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/ecosystem/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ files: payload }),

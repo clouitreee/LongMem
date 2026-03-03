@@ -7,7 +7,7 @@
 import { DaemonClient } from "../shared/daemon-client.ts";
 import { ensureDaemonRunning } from "../shared/auto-start.ts";
 import { resolveProject } from "../shared/git-root.ts";
-import { DEFAULT_PORT } from "../shared/constants.ts";
+import { DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR } from "../shared/constants.ts";
 
 const daemon = new DaemonClient();
 const currentProject = resolveProject(process.cwd());
@@ -99,7 +99,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
   const daemonUp = await ensureDaemonRunning();
 
   if (!daemonUp) {
-    return "Memory daemon is not running. Start it with: bun ~/.longmem/daemon.js";
+    return `Memory daemon is not running. Start it with: bun ${MEMORY_DIR}/daemon.js`;
   }
 
   switch (name) {
@@ -184,7 +184,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<st
         if (format) params.set("format", String(format));
         if (include_raw) params.set("include_raw", "true");
 
-        const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/export?${params}`, {
+        const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/export?${params}`, {
           signal: AbortSignal.timeout(30000),
         });
 

@@ -20,13 +20,12 @@ import { installService } from "./shared/service-unit.ts";
 import { verifyInstallation } from "./shared/verify.ts";
 import { scanEcosystem, printEcosystemSummary } from "./shared/ecosystem.ts";
 import { runFullTui } from "./shared/tui.ts";
-import { DEFAULT_PORT } from "./shared/constants.ts";
+import { 
+  DEFAULT_PORT, DEFAULT_HOST, MEMORY_DIR, BIN_DIR, SETTINGS_PATH, VERSION_FILE 
+} from "./shared/constants.ts";
 
-const MEMORY_DIR = join(homedir(), ".longmem");
 const DIST_DIR = join(import.meta.dir, "dist");
 
-// When running as compiled binary from ~/.longmem/bin/, dist/ won't exist
-// but the binaries are already in place (downloaded by install.sh)
 const hasDist = existsSync(DIST_DIR);
 const binariesInPlace = existsSync(join(MEMORY_DIR, "bin", "longmem")) || existsSync(join(MEMORY_DIR, "bin", "longmemd"));
 
@@ -85,14 +84,13 @@ if (detection.clients.length === 0) {
 // ─── 2. Handle Update Flow ──────────────────────────────────────────────────
 
 if (detection.existingInstall) {
-  const versionFile = join(MEMORY_DIR, "version");
-  const oldVersion = existsSync(versionFile) ? readFileSync(versionFile, "utf-8").trim() : "unknown";
+  const oldVersion = existsSync(VERSION_FILE) ? readFileSync(VERSION_FILE, "utf-8").trim() : "unknown";
   console.log(`  Existing install detected (${oldVersion})`);
 
   if (detection.daemon.running) {
     console.log("  Stopping daemon for update...");
     try {
-      await fetch(`http://127.0.0.1:${DEFAULT_PORT}/shutdown`, {
+      await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/shutdown`, {
         method: "POST",
         signal: AbortSignal.timeout(2000),
       });
@@ -159,8 +157,7 @@ if (!flags.dryRun) {
   }
 
   // Create settings.json with defaults (never overwrite existing)
-  const settingsPath = join(MEMORY_DIR, "settings.json");
-  if (!existsSync(settingsPath)) {
+  if (!existsSync(SETTINGS_PATH)) {
     const defaultSettings = {
       compression: {
         enabled: true,
@@ -174,11 +171,11 @@ if (!flags.dryRun) {
       daemon: { port: DEFAULT_PORT },
       privacy: { redactSecrets: true },
     };
-    writeFileSync(settingsPath, JSON.stringify(defaultSettings, null, 2));
-    chmodSync(settingsPath, 0o600);
-    console.log(`${GREEN}\u2713${RESET} Created ${settingsPath}`);
+    writeFileSync(SETTINGS_PATH, JSON.stringify(defaultSettings, null, 2));
+    chmodSync(SETTINGS_PATH, 0o600);
+    console.log(`${GREEN}\u2713${RESET} Created ${SETTINGS_PATH}`);
   } else {
-    console.log(`${GREEN}\u2713${RESET} ${settingsPath} preserved`);
+    console.log(`${GREEN}\u2713${RESET} ${SETTINGS_PATH} preserved`);
   }
 
   console.log("");
@@ -230,10 +227,10 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
   // Start daemon + verify
   if (!flags.dryRun) {
     try {
-      const healthRes = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/health`, { signal: AbortSignal.timeout(1000) });
+      const healthRes = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/health`, { signal: AbortSignal.timeout(1000) });
       if (healthRes.ok) console.log(`${GREEN}\u2713${RESET} Daemon already running`);
     } catch {
-      const binaryDaemon = join(MEMORY_DIR, "bin", "longmemd");
+      const binaryDaemon = join(BIN_DIR, "longmemd");
       const scriptDaemon = join(MEMORY_DIR, "daemon.js");
       let cmd: string[];
       if (existsSync(binaryDaemon)) {
@@ -257,7 +254,7 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
       printEcosystemSummary(ecoscan);
       try {
         const payload = ecoscan.files.map(f => ({ path: f.path, content: f.content, hash: f.hash, source: f.source }));
-        const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/ecosystem/ingest`, {
+        const res = await fetch(`http://${DEFAULT_HOST}:${DEFAULT_PORT}/ecosystem/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ files: payload }),
@@ -271,12 +268,11 @@ async function applyHeadless(detection: any, flags: Flags): Promise<void> {
     }
 
     // Write version file
-    const versionFile = join(MEMORY_DIR, "version");
     try {
       const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf-8"));
-      writeFileSync(versionFile, pkg.version || "1.0.0");
+      writeFileSync(VERSION_FILE, pkg.version || "1.0.0");
     } catch {
-      writeFileSync(versionFile, "1.0.0");
+      writeFileSync(VERSION_FILE, "1.0.0");
     }
   } else {
     console.log(`\n${YELLOW}(dry-run complete \u2014 no changes were made)${RESET}\n`);

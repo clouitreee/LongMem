@@ -1,6 +1,6 @@
 import { basename } from "path";
 import { existsSync, readFileSync } from "fs";
-import { join, homedir } from "path";
+import { VERSION_FILE } from "./shared/constants.ts";
 
 const binName = basename(process.argv[1] || process.argv[0]);
 
@@ -35,9 +35,8 @@ Examples:
 }
 
 function printVersion(): void {
-  const versionPath = join(homedir(), ".longmem", "version");
-  if (existsSync(versionPath)) {
-    console.log(readFileSync(versionPath, "utf-8").trim());
+  if (existsSync(VERSION_FILE)) {
+    console.log(readFileSync(VERSION_FILE, "utf-8").trim());
   } else {
     console.log("dev");
   }
