@@ -58,9 +58,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build monolith binary
+        shell: bash
         env:
           TAG: ${{ github.ref_name }}
-        run: bun build ./longmem.ts --compile --define BUILD_VERSION=\"${TAG}\" --outfile dist/bin/${{ matrix.out }} --target ${{ matrix.target }}
+        run: bun build ./longmem.ts --compile --define BUILD_VERSION="\"${TAG}\"" --outfile dist/bin/${{ matrix.out }} --target ${{ matrix.target }}
 
       - name: Build OpenCode plugin (JS)
         if: matrix.target == 'bun-linux-x64'
